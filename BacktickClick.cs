@@ -12,8 +12,8 @@ using System.Windows.Forms;
 // Automation. Each notice is drawn by a short process of its own that closes with it.
 internal static class BacktickClick
 {
-    private const string RunningName = "Local\\AiDesktopHotkeysBacktickClick";
-    private const string StopName = "Local\\AiDesktopHotkeysBacktickClickStop";
+    private const string RunningName = "Local\\ClaudeDesktopHotkeysBacktickClick";
+    private const string StopName = "Local\\ClaudeDesktopHotkeysBacktickClickStop";
     private const int Backtick = 0xC0;
 
     [StructLayout(LayoutKind.Sequential)]

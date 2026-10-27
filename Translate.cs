@@ -28,7 +28,7 @@ internal static class SelectionTranslator
     [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] private static extern bool SetProcessDpiAwarenessContext(IntPtr context);
 
-    internal const string PopupTitle = "ai-desktop-hotkeys 번역";
+    internal const string PopupTitle = "claude-desktop-hotkeys 번역";
     internal const string Prompt = "다음 텍스트를 자연스러운 한국어로 번역해. 설명 없이 번역문만 출력해:\n";
     // No tools, MCP servers or saved session: a translation needs none, and startup is faster.
     internal const string ClaudeArguments = "-p --model haiku --tools \"\" --no-session-persistence --strict-mcp-config";
@@ -262,7 +262,7 @@ internal static class SelectionTranslator
     // refresh token rotates, and another process refreshing it first wipes the CLI's copy.
     internal static string TokenPath()
     {
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ai-desktop-hotkeys\\claude-token.txt");
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "claude-desktop-hotkeys\\claude-token.txt");
     }
 
     internal static string ReadToken(string path)
@@ -411,7 +411,7 @@ internal static class SelectionTranslator
             shim.Arguments != "/d /s /c \"\"C:\\Users\\a b\\AppData\\Roaming\\npm\\claude.cmd\" " + ClaudeArguments + "\"" ||
             exe.StandardOutputEncoding.CodePage != 65001)
             throw new InvalidOperationException("Translation command line selftest failed.");
-        string fakeLocal = Path.Combine(Path.GetTempPath(), "ai-desktop-hotkeys-selftest-local");
+        string fakeLocal = Path.Combine(Path.GetTempPath(), "claude-desktop-hotkeys-selftest-local");
         try
         {
             Directory.CreateDirectory(Path.Combine(fakeLocal, "Packages\\Claude_pzs8sxrjxfjjc"));
@@ -423,7 +423,7 @@ internal static class SelectionTranslator
                 throw new InvalidOperationException("Translation CLI folder selftest failed.");
         }
         finally { try { Directory.Delete(fakeLocal, true); } catch { } }
-        string tokenFile = Path.Combine(Path.GetTempPath(), "ai-desktop-hotkeys-selftest-token.txt");
+        string tokenFile = Path.Combine(Path.GetTempPath(), "claude-desktop-hotkeys-selftest-token.txt");
         try
         {
             File.WriteAllText(tokenFile, "  sk-test- tok\r\nen \r\n");

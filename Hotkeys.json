@@ -18,7 +18,7 @@
     "Type": 1,
     "LastSelectedStepIndex": 0,
     "Steps": [],
-    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested active-app reasoning control.\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"ai-desktop-hotkeys\", \"ReasoningSwitch.exe\");\r\nvar reasoningApp = '';\ntry { reasoningApp = sp.ForegroundWindow().Process.ProcessName.toLowerCase(); } catch (e) {}\nif (reasoningApp === 'chatgpt' || reasoningApp === 'claude') {\n    sp.RunProgram(reasoningHelper, \"up\", \"open\", \"hidden\", true, false, false);\n} else {\n    // Pass the original chord through to other apps; S+ ignores its own injected keys.\n    sp.SendModifiedVKeys([vk.LCONTROL, vk.LMENU], [vk.UP]);\n}\n",
+    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested active-app reasoning control.\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"claude-desktop-hotkeys\", \"ReasoningSwitch.exe\");\r\nvar reasoningApp = '';\ntry { reasoningApp = sp.ForegroundWindow().Process.ProcessName.toLowerCase(); } catch (e) {}\nif (reasoningApp === 'chatgpt' || reasoningApp === 'claude') {\n    sp.RunProgram(reasoningHelper, \"up\", \"open\", \"hidden\", true, false, false);\n} else {\n    // Pass the original chord through to other apps; S+ ignores its own injected keys.\n    sp.SendModifiedVKeys([vk.LCONTROL, vk.LMENU], [vk.UP]);\n}\n",
     "LastScriptCaretPosition": 0
   },
   {
@@ -40,7 +40,7 @@
     "Type": 1,
     "LastSelectedStepIndex": 0,
     "Steps": [],
-    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested active-app reasoning control.\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"ai-desktop-hotkeys\", \"ReasoningSwitch.exe\");\r\nvar reasoningApp = '';\ntry { reasoningApp = sp.ForegroundWindow().Process.ProcessName.toLowerCase(); } catch (e) {}\nif (reasoningApp === 'chatgpt' || reasoningApp === 'claude') {\n    sp.RunProgram(reasoningHelper, \"down\", \"open\", \"hidden\", true, false, false);\n} else {\n    // Pass the original chord through to other apps; S+ ignores its own injected keys.\n    sp.SendModifiedVKeys([vk.LCONTROL, vk.LMENU], [vk.DOWN]);\n}\n",
+    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested active-app reasoning control.\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"claude-desktop-hotkeys\", \"ReasoningSwitch.exe\");\r\nvar reasoningApp = '';\ntry { reasoningApp = sp.ForegroundWindow().Process.ProcessName.toLowerCase(); } catch (e) {}\nif (reasoningApp === 'chatgpt' || reasoningApp === 'claude') {\n    sp.RunProgram(reasoningHelper, \"down\", \"open\", \"hidden\", true, false, false);\n} else {\n    // Pass the original chord through to other apps; S+ ignores its own injected keys.\n    sp.SendModifiedVKeys([vk.LCONTROL, vk.LMENU], [vk.DOWN]);\n}\n",
     "LastScriptCaretPosition": 0
   },
   {
@@ -62,7 +62,7 @@
     "Type": 1,
     "LastSelectedStepIndex": 0,
     "Steps": [],
-    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested active-app chat input focus.\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"ai-desktop-hotkeys\", \"ReasoningSwitch.exe\");\r\nvar reasoningApp = '';\ntry { reasoningApp = sp.ForegroundWindow().Process.ProcessName.toLowerCase(); } catch (e) {}\nif (reasoningApp === 'chatgpt' || reasoningApp === 'claude') {\n    sp.RunProgram(reasoningHelper, \"input\", \"open\", \"hidden\", true, false, false);\n} else {\n    // Pass the original chord through to other apps; S+ ignores its own injected keys.\n    sp.SendModifiedVKeys([vk.LCONTROL, vk.LMENU], [vk.OEM_2]);\n}\n",
+    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested active-app chat input focus.\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"claude-desktop-hotkeys\", \"ReasoningSwitch.exe\");\r\nvar reasoningApp = '';\ntry { reasoningApp = sp.ForegroundWindow().Process.ProcessName.toLowerCase(); } catch (e) {}\nif (reasoningApp === 'chatgpt' || reasoningApp === 'claude') {\n    sp.RunProgram(reasoningHelper, \"input\", \"open\", \"hidden\", true, false, false);\n} else {\n    // Pass the original chord through to other apps; S+ ignores its own injected keys.\n    sp.SendModifiedVKeys([vk.LCONTROL, vk.LMENU], [vk.OEM_2]);\n}\n",
     "LastScriptCaretPosition": 0
   },
   {
@@ -84,7 +84,7 @@
     "Type": 1,
     "LastSelectedStepIndex": 0,
     "Steps": [],
-    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested Claude sidebar session status toggle (Active/Archived).\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"ai-desktop-hotkeys\", \"ReasoningSwitch.exe\");\nvar reasoningApp = '';\ntry { reasoningApp = sp.ForegroundWindow().Process.ProcessName.toLowerCase(); } catch (e) {}\nif (reasoningApp === 'claude') {\n    sp.RunProgram(reasoningHelper, \"status\", \"open\", \"hidden\", true, false, false);\n} else {\n    // Pass the original chord through to other apps; S+ ignores its own injected keys.\n    sp.SendModifiedVKeys([vk.LCONTROL, vk.LMENU], [vk.VK_S]);\n}\n",
+    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested Claude sidebar session status toggle (Active/Archived).\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"claude-desktop-hotkeys\", \"ReasoningSwitch.exe\");\nvar reasoningApp = '';\ntry { reasoningApp = sp.ForegroundWindow().Process.ProcessName.toLowerCase(); } catch (e) {}\nif (reasoningApp === 'claude') {\n    sp.RunProgram(reasoningHelper, \"status\", \"open\", \"hidden\", true, false, false);\n} else {\n    // Pass the original chord through to other apps; S+ ignores its own injected keys.\n    sp.SendModifiedVKeys([vk.LCONTROL, vk.LMENU], [vk.VK_S]);\n}\n",
     "LastScriptCaretPosition": 0
   },
   {
@@ -106,7 +106,7 @@
     "Type": 1,
     "LastSelectedStepIndex": 0,
     "Steps": [],
-    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested Claude file pane Markdown preview/source toggle.\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"ai-desktop-hotkeys\", \"ReasoningSwitch.exe\");\nvar reasoningApp = '';\ntry { reasoningApp = sp.ForegroundWindow().Process.ProcessName.toLowerCase(); } catch (e) {}\nif (reasoningApp === 'claude') {\n    sp.RunProgram(reasoningHelper, \"markdown\", \"open\", \"hidden\", true, false, false);\n} else {\n    // Pass the original chord through to other apps; S+ ignores its own injected keys.\n    sp.SendModifiedVKeys([vk.LCONTROL, vk.LMENU], [vk.VK_D]);\n}\n",
+    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested Claude file pane Markdown preview/source toggle.\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"claude-desktop-hotkeys\", \"ReasoningSwitch.exe\");\nvar reasoningApp = '';\ntry { reasoningApp = sp.ForegroundWindow().Process.ProcessName.toLowerCase(); } catch (e) {}\nif (reasoningApp === 'claude') {\n    sp.RunProgram(reasoningHelper, \"markdown\", \"open\", \"hidden\", true, false, false);\n} else {\n    // Pass the original chord through to other apps; S+ ignores its own injected keys.\n    sp.SendModifiedVKeys([vk.LCONTROL, vk.LMENU], [vk.VK_D]);\n}\n",
     "LastScriptCaretPosition": 0
   },
   {
@@ -128,7 +128,7 @@
     "Type": 1,
     "LastSelectedStepIndex": 0,
     "Steps": [],
-    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested Claude Code background tasks pane toggle.\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"ai-desktop-hotkeys\", \"ReasoningSwitch.exe\");\nvar reasoningApp = '';\ntry { reasoningApp = sp.ForegroundWindow().Process.ProcessName.toLowerCase(); } catch (e) {}\nif (reasoningApp === 'claude') {\n    sp.RunProgram(reasoningHelper, \"tasks\", \"open\", \"hidden\", true, false, false);\n} else {\n    // Pass the original chord through to other apps; S+ ignores its own injected keys.\n    sp.SendModifiedVKeys([vk.LCONTROL, vk.LMENU], [vk.VK_B]);\n}\n",
+    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested Claude Code background tasks pane toggle.\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"claude-desktop-hotkeys\", \"ReasoningSwitch.exe\");\nvar reasoningApp = '';\ntry { reasoningApp = sp.ForegroundWindow().Process.ProcessName.toLowerCase(); } catch (e) {}\nif (reasoningApp === 'claude') {\n    sp.RunProgram(reasoningHelper, \"tasks\", \"open\", \"hidden\", true, false, false);\n} else {\n    // Pass the original chord through to other apps; S+ ignores its own injected keys.\n    sp.SendModifiedVKeys([vk.LCONTROL, vk.LMENU], [vk.VK_B]);\n}\n",
     "LastScriptCaretPosition": 0
   },
   {
@@ -150,7 +150,7 @@
     "Type": 1,
     "LastSelectedStepIndex": 0,
     "Steps": [],
-    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested translation of the selection to Korean in any app.\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"ai-desktop-hotkeys\", \"ReasoningSwitch.exe\");\n// Every app: the helper copies the selection itself, so the chord is not passed through.\nsp.RunProgram(reasoningHelper, \"translate\", \"open\", \"normal\", true, false, false);\n",
+    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested translation of the selection to Korean in any app.\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"claude-desktop-hotkeys\", \"ReasoningSwitch.exe\");\n// Every app: the helper copies the selection itself, so the chord is not passed through.\nsp.RunProgram(reasoningHelper, \"translate\", \"open\", \"normal\", true, false, false);\n",
     "LastScriptCaretPosition": 0
   },
   {
@@ -172,7 +172,7 @@
     "Type": 1,
     "LastSelectedStepIndex": 0,
     "Steps": [],
-    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested toggle: the ` key clicks the left mouse button where the cursor is.\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"ai-desktop-hotkeys\", \"ReasoningSwitch.exe\");\n// Every app: the first run stays on and holds the ` hook; the next run turns it off.\nsp.RunProgram(reasoningHelper, \"backtick-click\", \"open\", \"hidden\", true, false, false);\n",
+    "Script": "// CodexClaudeReasoningHotkeys-v1 -- user-requested toggle: the ` key clicks the left mouse button where the cursor is.\nvar reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), \"_ETC\", \"claude-desktop-hotkeys\", \"ReasoningSwitch.exe\");\n// Every app: the first run stays on and holds the ` hook; the next run turns it off.\nsp.RunProgram(reasoningHelper, \"backtick-click\", \"open\", \"hidden\", true, false, false);\n",
     "LastScriptCaretPosition": 0
   }
 ]

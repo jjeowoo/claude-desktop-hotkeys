@@ -1,4 +1,4 @@
-# ai-desktop-hotkeys
+# claude-desktop-hotkeys
 
 StrokesPlus.net 단축키로 ChatGPT Windows 앱과 Claude Desktop을 조작하고, 어느 앱에서나 선택한 영어를 한국어로 번역합니다.
 
@@ -54,7 +54,7 @@ StrokesPlus.net 단축키로 ChatGPT Windows 앱과 Claude Desktop을 조작하�
 CLI의 `/login` 로그인은 다른 프로그램이 먼저 갱신하면 풀릴 수 있습니다. 로그인이 자꾸 풀리면 1년짜리 토큰을 쓰세요. 구독 사용량에서 차감되는 것은 같고, 추가 요금은 없습니다.
 
 1. 터미널에서 `claude setup-token`을 실행합니다. 브라우저에서 승인하면 토큰이 출력됩니다.
-2. 출력된 토큰을 `%APPDATA%\ai-desktop-hotkeys\claude-token.txt`에 저장합니다. 이 파일이 있으면 번역할 때 그 토큰을 `CLAUDE_CODE_OAUTH_TOKEN`으로 넘기고, CLI 자체의 로그인은 쓰지 않습니다.
+2. 출력된 토큰을 `%APPDATA%\claude-desktop-hotkeys\claude-token.txt`에 저장합니다. 이 파일이 있으면 번역할 때 그 토큰을 `CLAUDE_CODE_OAUTH_TOKEN`으로 넘기고, CLI 자체의 로그인은 쓰지 않습니다.
 
 토큰은 1년 동안 계정을 쓸 수 있는 열쇠이므로 다른 곳에 올리지 마세요. 만료되거나 취소되면 팝업이 같은 방법으로 다시 발급하라고 안내합니다.
 
@@ -77,7 +77,7 @@ CLI를 찾지 못하거나, 로그인이 안 됐거나 만료됐거나, 실패�
 
 Windows, x64 .NET Framework 및 StrokesPlus.net이 필요합니다. StrokesPlus.net 0.5.7.8의 기본 설치 경로(`C:\Program Files\StrokesPlus.net`)에서 확인했습니다.
 
-1. 저장소를 내려받습니다. 권장 폴더는 Windows 문서 폴더의 `_ETC\ai-desktop-hotkeys`입니다.
+1. 저장소를 내려받습니다. 권장 폴더는 Windows 문서 폴더의 `_ETC\claude-desktop-hotkeys`입니다.
 2. 실행 중인 StrokesPlus.net을 트레이 메뉴의 **Exit**로 종료합니다.
 3. 내려받은 폴더에서 다음 명령을 실행합니다.
 
@@ -94,7 +94,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1
 .\Install.ps1 -Undo
 ```
 
-`Up.js`, `Down.js`, `Input.js`, `Status.js`, `Markdown.js`, `Tasks.js`, `Translate.js`는 수동 등록용 스크립트입니다. 기본 경로는 Windows 문서 폴더의 `_ETC\ai-desktop-hotkeys`이며, 다른 위치에서는 `reasoningHelper`를 변경하세요. `Hotkeys.json`은 설치 프로그램이 사용하는 템플릿입니다.
+`Up.js`, `Down.js`, `Input.js`, `Status.js`, `Markdown.js`, `Tasks.js`, `Translate.js`는 수동 등록용 스크립트입니다. 기본 경로는 Windows 문서 폴더의 `_ETC\claude-desktop-hotkeys`이며, 다른 위치에서는 `reasoningHelper`를 변경하세요. `Hotkeys.json`은 설치 프로그램이 사용하는 템플릿입니다.
 
 ## 동작
 
