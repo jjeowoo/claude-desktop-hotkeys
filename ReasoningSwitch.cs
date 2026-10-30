@@ -33,7 +33,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "46-claude-desktop-hotkeys";
+    private const string BuildName = "47-claude-desktop-hotkeys";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?Opus\s+5\.5\b|(?:Claude\s+)?Opus\s+5\.5\s*$)";
     // Not ListItem: Claude's Chat tab exposes conversation text as list items.
@@ -953,9 +953,19 @@ internal static class ReasoningSwitch
             items = ClaudeMenuItems(root);
             foreach (ClaudeMenuItem item in items)
                 if (IsTasksLabel(item.Name)) { box = item.Element; break; }
-            if (box != null) break;
+            // The menu's rows arrive together, so one that has rendered need not be waited on.
+            if (box != null || (items.Count > 0 && timer.ElapsedMilliseconds >= 300)) break;
             Thread.Sleep(25);
         } while (timer.ElapsedMilliseconds < 1600);
+        // Claude lists Background tasks only while the session has tasks to show.
+        if (box == null && items.Count > 0)
+        {
+            trace.AppendLine("menu items=" + MenuNames(items));
+            CloseMenu(root, options);
+            Record("Tasks: nothing to show in this session" + GiveFocusBack(typing));
+            ShowNotice("이 세션에는 백그라운드 작업이 없습니다.");
+            return;
+        }
         if (box == null || !box.TryGetCurrentPattern(TogglePattern.Pattern, out pattern))
         {
             trace.AppendLine("menu items=" + MenuNames(items));
