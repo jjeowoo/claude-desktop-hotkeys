@@ -1,5 +1,5 @@
 // CodexClaudeReasoningHotkeys-v1 -- user-requested Claude Code background tasks pane toggle.
-var reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), "_ETC", "claude-desktop-hotkeys", "ReasoningSwitch.exe");
+var reasoningHelper = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), "_Utility", "claude-desktop-hotkeys", "ReasoningSwitch.exe");
 var reasoningApp = '';
 try { reasoningApp = sp.ForegroundWindow().Process.ProcessName.toLowerCase(); } catch (e) {}
 if (reasoningApp === 'claude') {
