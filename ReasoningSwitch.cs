@@ -33,7 +33,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "47-claude-desktop-hotkeys";
+    private const string BuildName = "48-session-panel";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?Opus\s+5\.5\b|(?:Claude\s+)?Opus\s+5\.5\s*$)";
     // Not ListItem: Claude's Chat tab exposes conversation text as list items.
@@ -56,7 +56,7 @@ internal static class ReasoningSwitch
         if (args.Length == 3 && args[0] == "--refresh-ime") return RefreshTextInput(args[1], args[2]);
         if (args.Length == 1 && args[0] == "translate") return SelectionTranslator.Run();
         if (args.Length == 1 && args[0] == "--translate-check") return SelectionTranslator.Check();
-        if (args.Length != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "input" && args[0] != "status" && args[0] != "markdown" && args[0] != "tasks")) return 2;
+        if (args.Length != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "input" && args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel")) return 2;
         // Screenshot coordinates and cursor coordinates must use physical pixels.
         SetProcessDpiAwarenessContext(new IntPtr(-4));
         bool ownsLock;
@@ -70,12 +70,12 @@ internal static class ReasoningSwitch
                 GetWindowThreadProcessId(targetWindow, out pid);
                 app = Process.GetProcessById((int)pid).ProcessName.ToLowerInvariant();
                 if (app != "chatgpt" && app != "claude") return 0;
-                if ((args[0] == "status" || args[0] == "markdown" || args[0] == "tasks") && app != "claude") return 0;
+                if ((args[0] == "status" || args[0] == "markdown" || args[0] == "tasks" || args[0] == "panel") && app != "claude") return 0;
                 command = args[0];
                 // Clicks and the Right arrow key need the chord released first; a transient release
-                // can occur between chords. S, D and B only press controls through UI Automation, which
+                // can occur between chords. S, D, B and R only press controls through UI Automation, which
                 // held keys do not change, so they start at once instead of giving up after 3 s.
-                if (args[0] != "status" && args[0] != "markdown" && args[0] != "tasks")
+                if (args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel")
                 {
                     WaitForInputRelease();
                     trace.AppendLine("Initial key release at " + operationTimer.ElapsedMilliseconds + " ms.");
@@ -87,6 +87,7 @@ internal static class ReasoningSwitch
                 targetRoot = root;
                 if (args[0] == "input") { FocusInput(root); return 0; }
                 if (args[0] == "tasks") { ToggleTasksPane(root); return 0; }
+                if (args[0] == "panel") { ToggleSessionPanel(root); return 0; }
                 if (args[0] == "markdown") { ToggleMarkdownView(root); return 0; }
                 Stopwatch inputTimer = Stopwatch.StartNew();
                 RememberChatInput(root);
@@ -109,7 +110,8 @@ internal static class ReasoningSwitch
                 ShowNotice((args[0] == "input" ? "입력란으로 이동하지 못했습니다." :
                     args[0] == "status" ? "보관된 세션을 열지 못했습니다." :
                     args[0] == "markdown" ? "Markdown 미리보기/소스를 전환하지 못했습니다." :
-                    args[0] == "tasks" ? "백그라운드 작업 창을 전환하지 못했습니다." : "추론 전환을 확인하지 못했습니다.") +
+                    args[0] == "tasks" ? "백그라운드 작업 창을 전환하지 못했습니다." :
+                    args[0] == "panel" ? "세션 패널을 전환하지 못했습니다." : "추론 전환을 확인하지 못했습니다.") +
                     "\nReasoningHotkeys의 last-result.txt를 확인하세요.");
                 return 1;
             }
@@ -1022,6 +1024,31 @@ internal static class ReasoningSwitch
         } while (shown && timer.ElapsedMilliseconds < 1500);
         if (shown) throw new InvalidOperationException("The background tasks pane did not close.");
         Record("Tasks: pane hidden (pane verified)" + GiveFocusBack(typing));
+    }
+    // Mouse-free: the header's Session panel toggle shows or hides the session details rail.
+    private static void ToggleSessionPanel(AutomationElement root)
+    {
+        AutomationElement typing = FocusedTextEntry();
+        AutomationElement panel = null;
+        foreach (AutomationElement button in Elements(root, ControlType.Button))
+            if (IsSessionPanelToggle(Name(button))) { panel = button; break; }
+        object pattern;
+        if (panel == null || !panel.TryGetCurrentPattern(TogglePattern.Pattern, out pattern))
+            throw new InvalidOperationException("The Session panel button was not found; open a session in the Code tab.");
+        TogglePattern toggle = (TogglePattern)pattern;
+        ToggleState target = toggle.Current.ToggleState == ToggleState.On ? ToggleState.Off : ToggleState.On;
+        EnsureForeground();
+        focusTouched = true;
+        toggle.Toggle();
+        Stopwatch timer = Stopwatch.StartNew();
+        while (toggle.Current.ToggleState != target && timer.ElapsedMilliseconds < 1500) Thread.Sleep(25);
+        string action = target == ToggleState.On ? "open" : "close";
+        if (toggle.Current.ToggleState != target) throw new InvalidOperationException("The session panel did not " + action + ".");
+        Record("Panel: session panel " + action + (target == ToggleState.On ? "ed" : "d") + " (button verified)" + GiveFocusBack(typing));
+    }
+    private static bool IsSessionPanelToggle(string name)
+    {
+        return Regex.IsMatch(name, @"^\s*(세션\s*패널|session\s*panel)\s*$", RegexOptions.IgnoreCase);
     }
     // Puts the caret in the chat input with one real click, so typing can start at once.
     private static void FocusInput(AutomationElement root)
@@ -2018,6 +2045,9 @@ internal static class ReasoningSwitch
         if (!IsTasksLabel("백그라운드 작업") || !IsTasksLabel("백그라운드 작업 4") || !IsTasksLabel("Background tasks 12") ||
             IsTasksLabel("백그라운드 작업 지우기") || IsTasksLabel("채팅 및 백그라운드 작업 크기 조정"))
             throw new InvalidOperationException("Background tasks label selftest failed.");
+        if (!IsSessionPanelToggle("세션 패널") || !IsSessionPanelToggle("Session panel") ||
+            IsSessionPanelToggle("세션 세부정보") || IsSessionPanelToggle("세션 패널 크기 조정"))
+            throw new InvalidOperationException("Session panel button selftest failed.");
         if (!IsArchivedTab("보관됨") || !IsArchivedTab("Archived") || IsArchivedTab("활성") || IsArchivedTab("보관됨 검색용 2") ||
             !IsMarkdownViewToggle("소스 보기") || !IsMarkdownViewToggle("미리보기") || IsMarkdownViewToggle("확장 프로그램 미리보기 실패"))
             throw new InvalidOperationException("Sessions page or Markdown view selftest failed.");
