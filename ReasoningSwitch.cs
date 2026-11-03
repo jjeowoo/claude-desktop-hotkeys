@@ -33,7 +33,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "49-run-history";
+    private const string BuildName = "52-notice-after-lock";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?Opus\s+5\.5\b|(?:Claude\s+)?Opus\s+5\.5\s*$)";
     // Not ListItem: Claude's Chat tab exposes conversation text as list items.
@@ -56,9 +56,17 @@ internal static class ReasoningSwitch
         if (args.Length == 3 && args[0] == "--refresh-ime") return RefreshTextInput(args[1], args[2]);
         if (args.Length == 1 && args[0] == "translate") return SelectionTranslator.Run();
         if (args.Length == 1 && args[0] == "--translate-check") return SelectionTranslator.Check();
-        if (args.Length != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "input" && args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel")) return 2;
+        if (args.Length != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "input" && args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel" && args[0] != "send")) return 2;
         // Screenshot coordinates and cursor coordinates must use physical pixels.
         SetProcessDpiAwarenessContext(new IntPtr(-4));
+        int exit = RunLocked(args);
+        // After the lock's handle is closed: a later run sees the lock as taken while the handle is open,
+        // so a hotkey pressed again while the notice is up would be skipped.
+        try { ShowPendingNotice(); } catch { }
+        return exit;
+    }
+    private static int RunLocked(string[] args)
+    {
         bool ownsLock;
         using (Mutex gate = new Mutex(true, "Local\\StrokesPlusReasoningSwitch", out ownsLock))
         {
@@ -70,16 +78,16 @@ internal static class ReasoningSwitch
                 GetWindowThreadProcessId(targetWindow, out pid);
                 app = Process.GetProcessById((int)pid).ProcessName.ToLowerInvariant();
                 if (app != "chatgpt" && app != "claude") { RecordSkip(args[0] + " skipped: the app in front is " + app + "."); return 0; }
-                if ((args[0] == "status" || args[0] == "markdown" || args[0] == "tasks" || args[0] == "panel") && app != "claude")
+                if ((args[0] == "status" || args[0] == "markdown" || args[0] == "tasks" || args[0] == "panel" || args[0] == "send") && app != "claude")
                 {
                     RecordSkip(args[0] + " skipped: Claude only, the app in front is " + app + ".");
                     return 0;
                 }
                 command = args[0];
                 // Clicks and the Right arrow key need the chord released first; a transient release
-                // can occur between chords. S, D, B and R only press controls through UI Automation, which
+                // can occur between chords. S, D, B, R and \ only press controls through UI Automation, which
                 // held keys do not change, so they start at once instead of giving up after 3 s.
-                if (args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel")
+                if (args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel" && args[0] != "send")
                 {
                     WaitForInputRelease();
                     trace.AppendLine("Initial key release at " + operationTimer.ElapsedMilliseconds + " ms.");
@@ -92,6 +100,7 @@ internal static class ReasoningSwitch
                 if (args[0] == "input") { FocusInput(root); return 0; }
                 if (args[0] == "tasks") { ToggleTasksPane(root); return 0; }
                 if (args[0] == "panel") { ToggleSessionPanel(root); return 0; }
+                if (args[0] == "send") { SendWaitingNow(root); return 0; }
                 if (args[0] == "markdown") { ToggleMarkdownView(root); return 0; }
                 Stopwatch inputTimer = Stopwatch.StartNew();
                 RememberChatInput(root);
@@ -111,11 +120,12 @@ internal static class ReasoningSwitch
             {
                 WriteDiagnostic(error);
                 Record("ERROR: " + error.Message);
-                ShowNotice((args[0] == "input" ? "입력란으로 이동하지 못했습니다." :
+                DeferNotice((args[0] == "input" ? "입력란으로 이동하지 못했습니다." :
                     args[0] == "status" ? "보관된 세션을 열지 못했습니다." :
                     args[0] == "markdown" ? "Markdown 미리보기/소스를 전환하지 못했습니다." :
                     args[0] == "tasks" ? "백그라운드 작업 창을 전환하지 못했습니다." :
-                    args[0] == "panel" ? "세션 패널을 전환하지 못했습니다." : "추론 전환을 확인하지 못했습니다.") +
+                    args[0] == "panel" ? "세션 패널을 전환하지 못했습니다." :
+                    args[0] == "send" ? "대기 메시지를 지금 보내지 못했습니다." : "추론 전환을 확인하지 못했습니다.") +
                     "\nReasoningHotkeys의 last-result.txt를 확인하세요.");
                 return 1;
             }
@@ -973,7 +983,7 @@ internal static class ReasoningSwitch
             trace.AppendLine("menu items=" + MenuNames(items));
             CloseMenu(root, options);
             Record("Tasks: nothing to show in this session" + GiveFocusBack(typing));
-            ShowNotice("이 세션에는 백그라운드 작업이 없습니다.");
+            DeferNotice("이 세션에는 백그라운드 작업이 없습니다.");
             return;
         }
         if (box == null || !box.TryGetCurrentPattern(TogglePattern.Pattern, out pattern))
@@ -1057,6 +1067,76 @@ internal static class ReasoningSwitch
     private static bool IsSessionPanelToggle(string name)
     {
         return Regex.IsMatch(name, @"^\s*(세션\s*패널|session\s*panel)\s*$", RegexOptions.IgnoreCase);
+    }
+    // Mouse-free: presses Send now on the first message waiting while Claude works, which stops
+    // the current reply and sends that message next. The Code tab gives this button no shortcut;
+    // its Ctrl+Enter queues for later instead.
+    private static void SendWaitingNow(AutomationElement root)
+    {
+        AutomationElement typing = FocusedTextEntry();
+        AutomationElement send = SendNowButton(root);
+        bool expanded = false;
+        if (send == null)
+        {
+            // Queued messages fold into one "N messages queued" row; their buttons show once it is expanded.
+            AutomationElement queue = null;
+            foreach (AutomationElement button in Elements(root, ControlType.Button))
+                if (IsQueuedCount(Name(button))) { queue = button; break; }
+            object pattern;
+            if (queue != null && queue.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out pattern) &&
+                ((ExpandCollapsePattern)pattern).Current.ExpandCollapseState == ExpandCollapseState.Collapsed)
+            {
+                EnsureForeground();
+                focusTouched = true;
+                ((ExpandCollapsePattern)pattern).Expand();
+                expanded = true;
+                Stopwatch wait = Stopwatch.StartNew();
+                do { Thread.Sleep(25); send = SendNowButton(root); } while (send == null && wait.ElapsedMilliseconds < 1000);
+                // Leave the queue as it was found when it offers nothing to send.
+                if (send == null) try { ((ExpandCollapsePattern)pattern).Collapse(); } catch { }
+            }
+        }
+        trace.AppendLine("Send now button=" + (send != null) + "; queue expanded=" + expanded);
+        if (send == null)
+        {
+            Record("Send now: no message is waiting" + GiveFocusBack(typing));
+            DeferNotice("지금 보낼 대기 메시지가 없습니다.");
+            return;
+        }
+        object invoke;
+        if (!send.TryGetCurrentPattern(InvokePattern.Pattern, out invoke))
+            throw new InvalidOperationException("The Send now button cannot be pressed.");
+        EnsureForeground();
+        focusTouched = true;
+        ((InvokePattern)invoke).Invoke();
+        // The pressed button turns busy, then leaves with its message once the current reply stops,
+        // which can take longer than this wait; an accepted press is not reported as a failure.
+        Stopwatch timer = Stopwatch.StartNew();
+        bool gone = false;
+        do
+        {
+            Thread.Sleep(25);
+            try { gone = !send.Current.IsEnabled; } catch { gone = true; }
+        } while (!gone && timer.ElapsedMilliseconds < 1500);
+        Record("Send now: pressed" + (gone ? " (button verified)" : " (button still shown after 1.5 s)") + GiveFocusBack(typing));
+    }
+    // Exact names, so chat text mentioning Send now never matches, and Send now in a queued
+    // message's context menu is a menu item, not a button. A button scrolled out of view counts.
+    private static AutomationElement SendNowButton(AutomationElement root)
+    {
+        Stopwatch queryTimer = Stopwatch.StartNew();
+        AutomationElement found = root.FindFirst(TreeScope.Descendants, new AndCondition(
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
+            new PropertyCondition(AutomationElement.IsEnabledProperty, true),
+            new OrCondition(new PropertyCondition(AutomationElement.NameProperty, "지금 보내기"),
+                new PropertyCondition(AutomationElement.NameProperty, "Send now"))));
+        trace.AppendLine("UIA Send now lookup=" + queryTimer.ElapsedMilliseconds + " ms; found=" + (found != null));
+        return found;
+    }
+    // The folded queue row's name starts with its count, then the next message's preview.
+    private static bool IsQueuedCount(string name)
+    {
+        return Regex.IsMatch(name, @"^\s*(메시지\s*\d+\s*개\s*대기\s*중|\d+\s+messages?\s+queued)", RegexOptions.IgnoreCase);
     }
     // Puts the caret in the chat input with one real click, so typing can start at once.
     private static void FocusInput(AutomationElement root)
@@ -2017,10 +2097,14 @@ internal static class ReasoningSwitch
         Match start = new Regex(@"\r?\n\r?\n(?=\d{4}-\d\d-\d\d \d\d:\d\d:\d\d )").Match(history, history.Length / 2);
         return start.Success ? history.Substring(start.Index + start.Length) : history.Substring(history.Length / 2);
     }
-    private static void ShowNotice(string message)
+    // The notice stays up for 2.4 s; shown during the run, it kept typed keys held back and the
+    // IME unrenewed all that time, so the run only notes it and it appears once the run is over.
+    private static string pendingNotice;
+    private static void DeferNotice(string message) { pendingNotice = message; }
+    private static void ShowPendingNotice()
     {
-        if (GetForegroundWindow() != targetWindow) return;
-        using (Notice notice = new Notice(message)) Application.Run(notice);
+        if (pendingNotice == null || GetForegroundWindow() != targetWindow) return;
+        using (Notice notice = new Notice(pendingNotice)) Application.Run(notice);
     }
     private sealed class Notice : Form
     {
@@ -2082,6 +2166,10 @@ internal static class ReasoningSwitch
         if (!IsSessionPanelToggle("세션 패널") || !IsSessionPanelToggle("Session panel") ||
             IsSessionPanelToggle("세션 세부정보") || IsSessionPanelToggle("세션 패널 크기 조정"))
             throw new InvalidOperationException("Session panel button selftest failed.");
+        if (!IsQueuedCount("메시지 2 개 대기 중다음 메시지: 지금") || !IsQueuedCount("메시지 1개 대기 중") ||
+            !IsQueuedCount("3 messages queuedNext: hi") || !IsQueuedCount("1 message queued") ||
+            IsQueuedCount("대기 중인 메시지 접기") || IsQueuedCount("Collapse queued messages") || IsQueuedCount("메시지 2"))
+            throw new InvalidOperationException("Queued messages row selftest failed.");
         // A blank line inside a run, not followed by a time, is not where a run starts.
         string runs = "\r\n2026-11-03 13:20:28 claude A\r\n" + new string('x', 100) + "\r\n\r\nsummary\r\n" +
             "\r\n2026-11-03 13:21:00 claude B\r\nIME refresh: back=True\r\n";
