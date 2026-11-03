@@ -381,12 +381,9 @@ internal static class SelectionTranslator
 
     private static void Record(string message)
     {
-        try
-        {
-            File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "last-result-translate.txt"),
-                DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + message + Environment.NewLine);
-        }
-        catch { }
+        string result = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + message + Environment.NewLine;
+        try { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "last-result-translate.txt"), result); } catch { }
+        ReasoningSwitch.AppendHistory(Environment.NewLine + result);
     }
 
     internal static void SelfTest()

@@ -3,6 +3,7 @@ StrokesPlus.before-*.json
 last-action*.txt
 last-result*.txt
 last-diagnostic*.txt
+history.txt
 chat-input-*.txt
 selftest-error.txt
 

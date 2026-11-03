@@ -33,7 +33,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "48-session-panel";
+    private const string BuildName = "49-run-history";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?Opus\s+5\.5\b|(?:Claude\s+)?Opus\s+5\.5\s*$)";
     // Not ListItem: Claude's Chat tab exposes conversation text as list items.
@@ -62,15 +62,19 @@ internal static class ReasoningSwitch
         bool ownsLock;
         using (Mutex gate = new Mutex(true, "Local\\StrokesPlusReasoningSwitch", out ownsLock))
         {
-            if (!ownsLock) return 0;
+            if (!ownsLock) { RecordSkip(args[0] + " skipped: the previous run had not finished."); return 0; }
             try
             {
                 targetWindow = GetForegroundWindow();
                 uint pid;
                 GetWindowThreadProcessId(targetWindow, out pid);
                 app = Process.GetProcessById((int)pid).ProcessName.ToLowerInvariant();
-                if (app != "chatgpt" && app != "claude") return 0;
-                if ((args[0] == "status" || args[0] == "markdown" || args[0] == "tasks" || args[0] == "panel") && app != "claude") return 0;
+                if (app != "chatgpt" && app != "claude") { RecordSkip(args[0] + " skipped: the app in front is " + app + "."); return 0; }
+                if ((args[0] == "status" || args[0] == "markdown" || args[0] == "tasks" || args[0] == "panel") && app != "claude")
+                {
+                    RecordSkip(args[0] + " skipped: Claude only, the app in front is " + app + ".");
+                    return 0;
+                }
                 command = args[0];
                 // Clicks and the Right arrow key need the chord released first; a transient release
                 // can occur between chords. S, D, B and R only press controls through UI Automation, which
@@ -136,8 +140,11 @@ internal static class ReasoningSwitch
                 {
                     int typed = TypeAhead.Release();
                     if (typed > 0 && app != null)
-                        File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "last-action-" + app + ".txt"),
-                            "Keys held during the run and typed again: " + typed + Environment.NewLine);
+                    {
+                        string line = "Keys held during the run and typed again: " + typed + Environment.NewLine;
+                        File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "last-action-" + app + ".txt"), line);
+                        AppendHistory(line);
+                    }
                 }
                 catch { }
             }
@@ -164,6 +171,7 @@ internal static class ReasoningSwitch
         if (GetForegroundWindow() != targetWindow) result = "IME refresh skipped: the window is no longer in front.";
         else result = BounceActivation();
         try { File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "last-action-" + app + ".txt"), result + Environment.NewLine); } catch { }
+        AppendHistory(result + Environment.NewLine);
         return 0;
     }
     private static string BounceActivation()
@@ -1980,8 +1988,34 @@ internal static class ReasoningSwitch
             File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "last-action.txt"), action);
             File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "last-result-" + app + ".txt"), result);
             File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "last-action-" + app + ".txt"), action);
+            AppendHistory(Environment.NewLine + action);
         }
         catch { }
+    }
+    // Runs that do nothing write no last-*.txt, but a hotkey that "did not work" is told apart
+    // by them: the helper never ran, or ran and stood aside.
+    private static void RecordSkip(string message)
+    {
+        AppendHistory(Environment.NewLine + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + message + Environment.NewLine);
+    }
+    private const int HistoryLimit = 256 * 1024;
+    // history.txt keeps recent runs one after another, each starting after a blank line, so an
+    // intermittent failure can still be read after later runs have replaced last-*.txt.
+    internal static void AppendHistory(string text)
+    {
+        try
+        {
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "history.txt");
+            File.AppendAllText(path, text);
+            if (new FileInfo(path).Length > HistoryLimit) File.WriteAllText(path, TrimHistory(File.ReadAllText(path)));
+        }
+        catch { }
+    }
+    // Drops the older half, cutting where a run starts so no run is kept in part.
+    private static string TrimHistory(string history)
+    {
+        Match start = new Regex(@"\r?\n\r?\n(?=\d{4}-\d\d-\d\d \d\d:\d\d:\d\d )").Match(history, history.Length / 2);
+        return start.Success ? history.Substring(start.Index + start.Length) : history.Substring(history.Length / 2);
     }
     private static void ShowNotice(string message)
     {
@@ -2048,6 +2082,11 @@ internal static class ReasoningSwitch
         if (!IsSessionPanelToggle("세션 패널") || !IsSessionPanelToggle("Session panel") ||
             IsSessionPanelToggle("세션 세부정보") || IsSessionPanelToggle("세션 패널 크기 조정"))
             throw new InvalidOperationException("Session panel button selftest failed.");
+        // A blank line inside a run, not followed by a time, is not where a run starts.
+        string runs = "\r\n2026-11-03 13:20:28 claude A\r\n" + new string('x', 100) + "\r\n\r\nsummary\r\n" +
+            "\r\n2026-11-03 13:21:00 claude B\r\nIME refresh: back=True\r\n";
+        if (TrimHistory(runs) != "2026-11-03 13:21:00 claude B\r\nIME refresh: back=True\r\n" || TrimHistory("abcd") != "cd")
+            throw new InvalidOperationException("Run history trim selftest failed.");
         if (!IsArchivedTab("보관됨") || !IsArchivedTab("Archived") || IsArchivedTab("활성") || IsArchivedTab("보관됨 검색용 2") ||
             !IsMarkdownViewToggle("소스 보기") || !IsMarkdownViewToggle("미리보기") || IsMarkdownViewToggle("확장 프로그램 미리보기 실패"))
             throw new InvalidOperationException("Sessions page or Markdown view selftest failed.");
