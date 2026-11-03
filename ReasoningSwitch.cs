@@ -33,7 +33,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "52-notice-after-lock";
+    private const string BuildName = "54-header-tree-wait";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?Opus\s+5\.5\b|(?:Claude\s+)?Opus\s+5\.5\s*$)";
     // Not ListItem: Claude's Chat tab exposes conversation text as list items.
@@ -56,7 +56,7 @@ internal static class ReasoningSwitch
         if (args.Length == 3 && args[0] == "--refresh-ime") return RefreshTextInput(args[1], args[2]);
         if (args.Length == 1 && args[0] == "translate") return SelectionTranslator.Run();
         if (args.Length == 1 && args[0] == "--translate-check") return SelectionTranslator.Check();
-        if (args.Length != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "input" && args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel" && args[0] != "send")) return 2;
+        if (args.Length != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "input" && args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel" && args[0] != "send" && args[0] != "changes")) return 2;
         // Screenshot coordinates and cursor coordinates must use physical pixels.
         SetProcessDpiAwarenessContext(new IntPtr(-4));
         int exit = RunLocked(args);
@@ -78,16 +78,16 @@ internal static class ReasoningSwitch
                 GetWindowThreadProcessId(targetWindow, out pid);
                 app = Process.GetProcessById((int)pid).ProcessName.ToLowerInvariant();
                 if (app != "chatgpt" && app != "claude") { RecordSkip(args[0] + " skipped: the app in front is " + app + "."); return 0; }
-                if ((args[0] == "status" || args[0] == "markdown" || args[0] == "tasks" || args[0] == "panel" || args[0] == "send") && app != "claude")
+                if ((args[0] == "status" || args[0] == "markdown" || args[0] == "tasks" || args[0] == "panel" || args[0] == "send" || args[0] == "changes") && app != "claude")
                 {
                     RecordSkip(args[0] + " skipped: Claude only, the app in front is " + app + ".");
                     return 0;
                 }
                 command = args[0];
                 // Clicks and the Right arrow key need the chord released first; a transient release
-                // can occur between chords. S, D, B, R and \ only press controls through UI Automation, which
+                // can occur between chords. S, D, B, R, \ and G only press controls through UI Automation, which
                 // held keys do not change, so they start at once instead of giving up after 3 s.
-                if (args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel" && args[0] != "send")
+                if (args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel" && args[0] != "send" && args[0] != "changes")
                 {
                     WaitForInputRelease();
                     trace.AppendLine("Initial key release at " + operationTimer.ElapsedMilliseconds + " ms.");
@@ -100,6 +100,7 @@ internal static class ReasoningSwitch
                 if (args[0] == "input") { FocusInput(root); return 0; }
                 if (args[0] == "tasks") { ToggleTasksPane(root); return 0; }
                 if (args[0] == "panel") { ToggleSessionPanel(root); return 0; }
+                if (args[0] == "changes") { ToggleChangesView(root); return 0; }
                 if (args[0] == "send") { SendWaitingNow(root); return 0; }
                 if (args[0] == "markdown") { ToggleMarkdownView(root); return 0; }
                 Stopwatch inputTimer = Stopwatch.StartNew();
@@ -125,6 +126,7 @@ internal static class ReasoningSwitch
                     args[0] == "markdown" ? "Markdown 미리보기/소스를 전환하지 못했습니다." :
                     args[0] == "tasks" ? "백그라운드 작업 창을 전환하지 못했습니다." :
                     args[0] == "panel" ? "세션 패널을 전환하지 못했습니다." :
+                    args[0] == "changes" ? "변경 사항 창을 전환하지 못했습니다." :
                     args[0] == "send" ? "대기 메시지를 지금 보내지 못했습니다." : "추론 전환을 확인하지 못했습니다.") +
                     "\nReasoningHotkeys의 last-result.txt를 확인하세요.");
                 return 1;
@@ -1046,13 +1048,36 @@ internal static class ReasoningSwitch
     // Mouse-free: the header's Session panel toggle shows or hides the session details rail.
     private static void ToggleSessionPanel(AutomationElement root)
     {
+        ToggleHeaderButton(root, IsSessionPanelToggle, "Session panel", "Panel: session panel");
+    }
+    // Mouse-free: the header's Changes toggle shows or hides the diff view. Claude's own
+    // Ctrl+Shift+D can be taken by another hotkey, and a Ctrl+Shift+D sent from StrokesPlus
+    // fires that hotkey too, so the button is pressed instead of the key.
+    private static void ToggleChangesView(AutomationElement root)
+    {
+        ToggleHeaderButton(root, IsChangesToggle, "Changes", "Changes: changes view");
+    }
+    private static void ToggleHeaderButton(AutomationElement root, Func<string, bool> matches, string label, string record)
+    {
         AutomationElement typing = FocusedTextEntry();
-        AutomationElement panel = null;
-        foreach (AutomationElement button in Elements(root, ControlType.Button))
-            if (IsSessionPanelToggle(Name(button))) { panel = button; break; }
+        // Chromium builds its accessibility tree on request, so the first lookup can return
+        // only the window frame; look again for a short while.
+        AutomationElement found = null;
+        Stopwatch treeTimer = Stopwatch.StartNew();
+        int lookups = 0;
+        do
+        {
+            EnsureForeground();
+            lookups++;
+            foreach (AutomationElement button in Elements(root, ControlType.Button))
+                if (matches(Name(button))) { found = button; break; }
+            if (found != null) break;
+            Thread.Sleep(50);
+        } while (treeTimer.ElapsedMilliseconds < 1500);
+        if (lookups > 1) trace.AppendLine(label + " button lookups=" + lookups + ", waited=" + treeTimer.ElapsedMilliseconds + " ms.");
         object pattern;
-        if (panel == null || !panel.TryGetCurrentPattern(TogglePattern.Pattern, out pattern))
-            throw new InvalidOperationException("The Session panel button was not found; open a session in the Code tab.");
+        if (found == null || !found.TryGetCurrentPattern(TogglePattern.Pattern, out pattern))
+            throw new InvalidOperationException("The " + label + " button was not found; open a session in the Code tab.");
         TogglePattern toggle = (TogglePattern)pattern;
         ToggleState target = toggle.Current.ToggleState == ToggleState.On ? ToggleState.Off : ToggleState.On;
         EnsureForeground();
@@ -1061,12 +1086,16 @@ internal static class ReasoningSwitch
         Stopwatch timer = Stopwatch.StartNew();
         while (toggle.Current.ToggleState != target && timer.ElapsedMilliseconds < 1500) Thread.Sleep(25);
         string action = target == ToggleState.On ? "open" : "close";
-        if (toggle.Current.ToggleState != target) throw new InvalidOperationException("The session panel did not " + action + ".");
-        Record("Panel: session panel " + action + (target == ToggleState.On ? "ed" : "d") + " (button verified)" + GiveFocusBack(typing));
+        if (toggle.Current.ToggleState != target) throw new InvalidOperationException("The " + label + " button did not " + action + " its pane.");
+        Record(record + " " + action + (target == ToggleState.On ? "ed" : "d") + " (button verified)" + GiveFocusBack(typing));
     }
     private static bool IsSessionPanelToggle(string name)
     {
         return Regex.IsMatch(name, @"^\s*(세션\s*패널|session\s*panel)\s*$", RegexOptions.IgnoreCase);
+    }
+    private static bool IsChangesToggle(string name)
+    {
+        return Regex.IsMatch(name, @"^\s*(변경\s*사항|changes)\s*$", RegexOptions.IgnoreCase);
     }
     // Mouse-free: presses Send now on the first message waiting while Claude works, which stops
     // the current reply and sends that message next. The Code tab gives this button no shortcut;
@@ -2166,6 +2195,9 @@ internal static class ReasoningSwitch
         if (!IsSessionPanelToggle("세션 패널") || !IsSessionPanelToggle("Session panel") ||
             IsSessionPanelToggle("세션 세부정보") || IsSessionPanelToggle("세션 패널 크기 조정"))
             throw new InvalidOperationException("Session panel button selftest failed.");
+        if (!IsChangesToggle("변경 사항") || !IsChangesToggle("Changes") ||
+            IsChangesToggle("변경 사항 없음") || IsChangesToggle("Discard changes"))
+            throw new InvalidOperationException("Changes button selftest failed.");
         if (!IsQueuedCount("메시지 2 개 대기 중다음 메시지: 지금") || !IsQueuedCount("메시지 1개 대기 중") ||
             !IsQueuedCount("3 messages queuedNext: hi") || !IsQueuedCount("1 message queued") ||
             IsQueuedCount("대기 중인 메시지 접기") || IsQueuedCount("Collapse queued messages") || IsQueuedCount("메시지 2"))
