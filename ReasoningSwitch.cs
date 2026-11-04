@@ -33,7 +33,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "54-header-tree-wait";
+    private const string BuildName = "55-tasks-pane-close";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?Opus\s+5\.5\b|(?:Claude\s+)?Opus\s+5\.5\s*$)";
     // Not ListItem: Claude's Chat tab exposes conversation text as list items.
@@ -953,8 +953,8 @@ internal static class ReasoningSwitch
     {
         AutomationElement typing = FocusedTextEntry();
         // An open pane is closed with its own Close button; the menu is only needed to open it.
-        AutomationElement pane = TasksPane(root);
-        if (pane != null) { CloseTasksPane(root, pane, typing); return; }
+        AutomationElement close = TasksPaneClose(root);
+        if (close != null) { CloseTasksPane(root, close, typing); return; }
         AutomationElement options = null;
         foreach (AutomationElement button in Elements(root, ControlType.Button))
             if (Regex.IsMatch(Name(button), @"^\s*(보기\s*옵션|view\s*options)\s*$", RegexOptions.IgnoreCase)) { options = button; break; }
@@ -1016,21 +1016,22 @@ internal static class ReasoningSwitch
     {
         return Regex.IsMatch(name, @"^\s*(백그라운드\s*작업|background\s*tasks?)(\s*\d+)?\s*$", RegexOptions.IgnoreCase);
     }
-    private static bool TasksPaneShown(AutomationElement root) { return TasksPane(root) != null; }
-    private static AutomationElement TasksPane(AutomationElement root)
+    private static bool TasksPaneShown(AutomationElement root) { return TasksPaneClose(root) != null; }
+    // The session details rail also has a "백그라운드 작업" section, so only a group with its
+    // own Close button is the tasks pane; the pane's Close button is returned.
+    private static AutomationElement TasksPaneClose(AutomationElement root)
     {
         foreach (AutomationElement group in Elements(root, ControlType.Group))
-            if (IsTasksLabel(Name(group))) return group;
+            if (IsTasksLabel(Name(group)))
+                foreach (AutomationElement button in Elements(group, ControlType.Button))
+                    if (Regex.IsMatch(Name(button), @"^\s*(닫기|close)\s*$", RegexOptions.IgnoreCase)) return button;
         return null;
     }
-    private static void CloseTasksPane(AutomationElement root, AutomationElement pane, AutomationElement typing)
+    private static void CloseTasksPane(AutomationElement root, AutomationElement close, AutomationElement typing)
     {
-        AutomationElement close = null;
-        foreach (AutomationElement button in Elements(pane, ControlType.Button))
-            if (Regex.IsMatch(Name(button), @"^\s*(닫기|close)\s*$", RegexOptions.IgnoreCase)) { close = button; break; }
         object invoke;
-        if (close == null || !close.TryGetCurrentPattern(InvokePattern.Pattern, out invoke))
-            throw new InvalidOperationException("The background tasks pane has no Close button; no change made.");
+        if (!close.TryGetCurrentPattern(InvokePattern.Pattern, out invoke))
+            throw new InvalidOperationException("The background tasks pane's Close button cannot be pressed; no change made.");
         EnsureForeground();
         focusTouched = true;
         ((InvokePattern)invoke).Invoke();
