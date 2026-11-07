@@ -200,7 +200,7 @@ ChatGPT와, 접근성이 안 될 때의 예비 경로입니다.
 - `chat-input-*.txt`: 같은 창에서 재사용하는 창·프로세스 번호와 입력란 위치
 - `last-result-translate.txt`: 최근 번역의 결과·소요 시간·사용한 `claude` 경로. 원문과 번역문은 기록하지 않습니다.
 - `selftest-error.txt`: `--selftest`가 예외로 실패했을 때의 오류 내용
-- `StrokesPlus.before-*.json`: 설치 전 개인 설정 백업
+- `StrokesPlus-*.zip`: 설치 전 개인 설정 백업. `D:\관리\Settings\생산성`이 있으면 그곳에, 없으면 이 폴더에 압축해 두고 최근 10개만 남깁니다. StrokesPlus 설정을 직접 고치기 전에도 `.\Backup-StrokesPlus.ps1`을 실행하세요.
 
 이름에 `-chatgpt`, `-claude`가 붙은 파일은 앱별 최근 기록입니다.
 

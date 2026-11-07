@@ -65,9 +65,8 @@ if ($DryRun) {
     exit 0
 }
 if ([IO.File]::ReadAllText($configPath) -cne $originalJson) { throw 'Settings changed during preparation; run this installer again.' }
-$backupName = 'StrokesPlus.before-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.json'
-$backupPath = Join-Path $PSScriptRoot $backupName
-[IO.File]::WriteAllText($backupPath, $originalJson, [Text.UTF8Encoding]::new($false))
+# The file was just checked to still match $originalJson, so this zip holds exactly what is replaced.
+$backupPath = & (Join-Path $PSScriptRoot 'Backup-StrokesPlus.ps1') -Label $(if ($Undo) { 'undo' } else { 'install' })
 $stopped = $false
 $written = $false
 try {

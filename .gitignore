@@ -1,5 +1,6 @@
 # Local StrokesPlus settings, diagnostics and cached window positions.
 StrokesPlus.before-*.json
+StrokesPlus-*.zip
 last-action*.txt
 last-result*.txt
 last-diagnostic*.txt
