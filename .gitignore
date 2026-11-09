@@ -14,6 +14,7 @@ selftest-error.txt
 *.replacement-*.tmp
 *.reasoning-move-*.tmp
 *.pdb
+ReasoningSwitch.exe.old-*
 .vs/
 
 # Retired, unused reference screenshot.

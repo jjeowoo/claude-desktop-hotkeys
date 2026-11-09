@@ -2,17 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-// Ctrl+Alt+T in any app: copies the selection, puts the clipboard back, and shows a Korean
+// Ctrl+Alt+X in any app: copies the selection, puts the clipboard back, and shows a Korean
 // translation from Claude Code's CLI (`claude -p`, Haiku) in a popup by the mouse cursor.
-// The selected text reaches Claude only through the CLI's standard input and is never logged.
+// A pinned capture (PinnedImage.cs) sends its image the same way, from its right-click menu.
+// The selected text or image reaches Claude only through the CLI's standard input and is never logged.
 internal static class SelectionTranslator
 {
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
@@ -32,6 +36,11 @@ internal static class SelectionTranslator
     internal const string Prompt = "다음 텍스트를 자연스러운 한국어로 번역해. 설명 없이 번역문만 출력해:\n";
     // No tools, MCP servers or saved session: a translation needs none, and startup is faster.
     internal const string ClaudeArguments = "-p --model haiku --tools \"\" --no-session-persistence --strict-mcp-config";
+    internal const string ImagePrompt = "이미지 속 글자를 자연스러운 한국어로 번역해. 설명 없이 번역문만 출력해. 글자가 없으면 \"이미지에서 글자를 찾지 못했습니다.\"라고만 출력해.";
+    // Plain -p input is text only; stream-json takes a whole message, image block included.
+    internal const string ImageArguments = ClaudeArguments + " --input-format stream-json --output-format stream-json --verbose";
+    // Claude scales anything with a longer edge down to this; sending it smaller loses nothing.
+    internal const int MaxImageEdge = 1568;
     private const int MaxLength = 8000;
     private const int TimeoutSeconds = 90;
     private static readonly string[] terminalProcesses = { "windowsterminal", "openconsole", "conhost", "cmd", "powershell", "pwsh",
@@ -67,7 +76,7 @@ internal static class SelectionTranslator
         catch (Exception error) { problem = "선택 영역을 복사하지 못했습니다.\n" + error.Message; }
         if (problem != null) Record("Not translated: " + problem.Replace("\n", " "));
         ClosePreviousPopups();
-        using (TranslationPopup popup = new TranslationPopup(source, problem == null ? text : null, problem))
+        using (TranslationPopup popup = new TranslationPopup(source, problem == null ? text : null, null, problem))
             Application.Run(popup);
         return 0;
     }
@@ -75,20 +84,113 @@ internal static class SelectionTranslator
     // Translates a fixed sentence without UI or clipboard, to check the CLI from a terminal.
     internal static int Check()
     {
-        Result result = Translate("The quick brown fox jumps over the lazy dog.", null);
+        Result result = Translate("The quick brown fox jumps over the lazy dog.", null, null);
         Record((result.Ok ? "Check OK: " : "Check failed: ") + result.Text.Replace("\n", " ") + " (claude: " + (result.Claude ?? "not found") + ")");
         return result.Ok ? 0 : 1;
     }
 
+    // The same for an image: a drawn English sentence goes through the image path.
+    internal static int CheckImage()
+    {
+        Result result;
+        using (Bitmap sample = new Bitmap(560, 70))
+        {
+            using (Graphics graphics = Graphics.FromImage(sample))
+            using (Font font = new Font("Segoe UI", 14f))
+            {
+                graphics.Clear(Color.White);
+                graphics.DrawString("The meeting has been moved to Friday afternoon.", font, Brushes.Black, 8, 18);
+            }
+            result = Translate(null, EncodeForClaude(sample), null);
+        }
+        Record((result.Ok ? "Image check OK: " : "Image check failed: ") + result.Text.Replace("\n", " ") + " (claude: " + (result.Claude ?? "not found") + ")");
+        return result.Ok ? 0 : 1;
+    }
+
+    // A pinned capture's translation popup. The caller closes its own earlier popup first:
+    // one in the caller's thread would not see the close message ClosePreviousPopups posts.
+    internal static Form ImagePopup(IntPtr source, Image image)
+    {
+        ClosePreviousPopups();
+        byte[] png = null;
+        string problem = null;
+        try { png = EncodeForClaude(image); }
+        catch (Exception error) { problem = "이미지를 준비하지 못했습니다.\n" + error.Message; }
+        if (problem != null) Record("Not translated: " + problem.Replace("\n", " "));
+        return new TranslationPopup(source, null, png, problem);
+    }
+
+    internal static Size FitWithin(Size size, int maxEdge)
+    {
+        int edge = Math.Max(size.Width, size.Height);
+        if (edge <= maxEdge) return size;
+        double scale = (double)maxEdge / edge;
+        return new Size(Math.Max(1, (int)Math.Round(size.Width * scale)), Math.Max(1, (int)Math.Round(size.Height * scale)));
+    }
+
+    internal static byte[] EncodeForClaude(Image image)
+    {
+        Size size = FitWithin(image.Size, MaxImageEdge);
+        using (Bitmap scaled = new Bitmap(size.Width, size.Height, PixelFormat.Format32bppArgb))
+        using (MemoryStream stream = new MemoryStream())
+        {
+            using (Graphics graphics = Graphics.FromImage(scaled))
+            {
+                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                graphics.DrawImage(image, new Rectangle(Point.Empty, size));
+            }
+            scaled.Save(stream, ImageFormat.Png);
+            return stream.ToArray();
+        }
+    }
+
+    private static JavaScriptSerializer Json()
+    {
+        return new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+    }
+
+    // One stream-json user message: the image, then the instruction.
+    internal static string ImageRequest(byte[] png)
+    {
+        Dictionary<string, object> source = new Dictionary<string, object> { { "type", "base64" }, { "media_type", "image/png" }, { "data", Convert.ToBase64String(png) } };
+        object[] content = {
+            new Dictionary<string, object> { { "type", "image" }, { "source", source } },
+            new Dictionary<string, object> { { "type", "text" }, { "text", ImagePrompt } }
+        };
+        Dictionary<string, object> message = new Dictionary<string, object> { { "role", "user" }, { "content", content } };
+        return Json().Serialize(new Dictionary<string, object> { { "type", "user" }, { "message", message } });
+    }
+
+    // The closing "result" event carries the answer, or the error when is_error is set.
+    internal static bool ParseStreamResult(string output, out string text, out bool isError)
+    {
+        text = "";
+        isError = false;
+        foreach (string line in (output ?? "").Split('\n'))
+        {
+            if (line.IndexOf("\"result\"", StringComparison.Ordinal) < 0) continue;
+            Dictionary<string, object> item;
+            try { item = Json().DeserializeObject(line.Trim()) as Dictionary<string, object>; }
+            catch { continue; }
+            object type, value, error;
+            if (item == null || !item.TryGetValue("type", out type) || (type as string) != "result") continue;
+            text = item.TryGetValue("result", out value) ? (value as string) ?? "" : "";
+            isError = item.TryGetValue("is_error", out error) && error is bool && (bool)error;
+            return true;
+        }
+        return false;
+    }
+
     private static bool IsDown(int key) { return (GetAsyncKeyState(key) & 0x8000) != 0; }
-    // Ctrl+C sent while Alt or T is still held would reach the app as another chord.
+    // Ctrl+C sent while Alt or X is still held would reach the app as another chord.
     private static bool WaitForKeysUp()
     {
         Stopwatch timer = Stopwatch.StartNew();
         long releasedSince = -1;
         while (timer.ElapsedMilliseconds < 3000)
         {
-            if (IsDown(16) || IsDown(17) || IsDown(18) || IsDown(91) || IsDown(92) || IsDown(84)) releasedSince = -1;
+            if (IsDown(16) || IsDown(17) || IsDown(18) || IsDown(91) || IsDown(92) || IsDown(88)) releasedSince = -1;
             else
             {
                 if (releasedSince < 0) releasedSince = timer.ElapsedMilliseconds;
@@ -277,12 +379,12 @@ internal static class SelectionTranslator
         catch { return null; }
     }
 
-    internal static ProcessStartInfo StartInfo(string claude, string token = null)
+    internal static ProcessStartInfo StartInfo(string claude, string token = null, string arguments = ClaudeArguments)
     {
         bool script = claude.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) || claude.EndsWith(".bat", StringComparison.OrdinalIgnoreCase);
         ProcessStartInfo info = script
-            ? new ProcessStartInfo(Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe", "/d /s /c \"\"" + claude + "\" " + ClaudeArguments + "\"")
-            : new ProcessStartInfo(claude, ClaudeArguments);
+            ? new ProcessStartInfo(Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe", "/d /s /c \"\"" + claude + "\" " + arguments + "\"")
+            : new ProcessStartInfo(claude, arguments);
         info.UseShellExecute = false;
         info.CreateNoWindow = true;
         info.RedirectStandardInput = true;
@@ -299,7 +401,8 @@ internal static class SelectionTranslator
         return info;
     }
 
-    internal static Result Translate(string text, Action<Process> started)
+    // Text, or the PNG in png when it is set.
+    internal static Result Translate(string text, byte[] png, Action<Process> started)
     {
         Result result = new Result { Claude = FindClaude() };
         if (result.Claude == null)
@@ -308,7 +411,7 @@ internal static class SelectionTranslator
             return result;
         }
         string tokenPath = TokenPath(), token = ReadToken(tokenPath);
-        using (Process process = new Process { StartInfo = StartInfo(result.Claude, token) })
+        using (Process process = new Process { StartInfo = StartInfo(result.Claude, token, png == null ? ClaudeArguments : ImageArguments) })
         {
             try { process.Start(); }
             catch (Exception error)
@@ -324,7 +427,7 @@ internal static class SelectionTranslator
             // UTF-8 bytes straight to the pipe; the selection never appears on a command line.
             try
             {
-                byte[] input = new UTF8Encoding(false).GetBytes(Prompt + text);
+                byte[] input = new UTF8Encoding(false).GetBytes(png == null ? Prompt + text : ImageRequest(png) + "\n");
                 process.StandardInput.BaseStream.Write(input, 0, input.Length);
                 process.StandardInput.Close();
             }
@@ -337,10 +440,16 @@ internal static class SelectionTranslator
             }
             process.WaitForExit();
             string translated = Normalize(output.Result), errorText;
+            bool reportedError = false;
+            if (png != null)
+            {
+                string answer;
+                translated = ParseStreamResult(translated, out answer, out reportedError) ? Normalize(answer) : "";
+            }
             lock (errors) errorText = errors.ToString();
-            if (process.ExitCode == 0 && translated.Length > 0) { result.Ok = true; result.Text = translated; }
-            else if (process.ExitCode == 0) result.Text = "번역 결과가 비어 있습니다.";
-            else result.Text = FailureMessage(process.ExitCode, translated, errorText, result.Claude, tokenPath, token != null);
+            if (process.ExitCode == 0 && !reportedError && translated.Length > 0) { result.Ok = true; result.Text = translated; }
+            else if (process.ExitCode == 0 && !reportedError) result.Text = "번역 결과가 비어 있습니다.";
+            else result.Text = FailureMessage(process.ExitCode == 0 ? 1 : process.ExitCode, translated, errorText, result.Claude, tokenPath, token != null);
             return result;
         }
     }
@@ -433,6 +542,28 @@ internal static class SelectionTranslator
                 throw new InvalidOperationException("Translation token selftest failed.");
         }
         finally { try { File.Delete(tokenFile); } catch { } }
+        ProcessStartInfo imageInfo = StartInfo("C:\\Tools\\claude.exe", null, ImageArguments);
+        string answer;
+        bool isError;
+        if (imageInfo.Arguments != ClaudeArguments + " --input-format stream-json --output-format stream-json --verbose" ||
+            FitWithin(new Size(800, 200), MaxImageEdge) != new Size(800, 200) || FitWithin(new Size(3136, 1000), MaxImageEdge) != new Size(1568, 500) ||
+            FitWithin(new Size(10, 5000), MaxImageEdge) != new Size(3, 1568) ||
+            !ParseStreamResult("{\"type\":\"system\",\"subtype\":\"init\"}\n{\"type\":\"result\",\"is_error\":false,\"result\":\"회의\\n변경\"}\n", out answer, out isError) ||
+            answer != "회의\n변경" || isError ||
+            !ParseStreamResult("{\"type\":\"result\",\"is_error\":true,\"result\":\"Not logged in\"}", out answer, out isError) || !isError ||
+            ParseStreamResult("{\"type\":\"assistant\",\"result\":\"x\"}\nnot json \"result\"", out answer, out isError))
+            throw new InvalidOperationException("Image translation request selftest failed.");
+        using (Bitmap wide = new Bitmap(2000, 400))
+        {
+            Dictionary<string, object> request = Json().DeserializeObject(ImageRequest(EncodeForClaude(wide))) as Dictionary<string, object>;
+            Dictionary<string, object> message = (Dictionary<string, object>)request["message"];
+            object[] content = (object[])message["content"];
+            Dictionary<string, object> source = (Dictionary<string, object>)((Dictionary<string, object>)content[0])["source"];
+            using (Image decoded = Image.FromStream(new MemoryStream(Convert.FromBase64String((string)source["data"]))))
+                if ((string)request["type"] != "user" || (string)message["role"] != "user" || (string)source["media_type"] != "image/png" ||
+                    decoded.Size != new Size(1568, 314) || (string)((Dictionary<string, object>)content[1])["text"] != ImagePrompt)
+                    throw new InvalidOperationException("Image translation encoding selftest failed.");
+        }
         if (Normalize(" a\r\nb\rc \n") != "a\nb\nc" || !IsTerminal("WindowsTerminal", "") || !IsTerminal("", "ConsoleWindowClass") ||
             IsTerminal("chrome", "Chrome_WidgetWin_1") || IsTerminal("notepad", "Notepad"))
             throw new InvalidOperationException("Translation text or terminal selftest failed.");
@@ -442,6 +573,7 @@ internal static class SelectionTranslator
     {
         private readonly IntPtr source;
         private readonly string text;
+        private readonly byte[] png;
         private readonly float scale;
         private readonly Point anchor;
         private readonly Label status;
@@ -453,10 +585,11 @@ internal static class SelectionTranslator
         private Process running;
         private volatile bool finished;
 
-        internal TranslationPopup(IntPtr source, string text, string problem)
+        internal TranslationPopup(IntPtr source, string text, byte[] png, string problem)
         {
             this.source = source;
             this.text = text;
+            this.png = png;
             Text = PopupTitle;
             FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true; StartPosition = FormStartPosition.Manual;
             BackColor = Color.FromArgb(35, 35, 40); ForeColor = Color.White;
@@ -480,10 +613,11 @@ internal static class SelectionTranslator
             if (problem != null) ShowProblem(problem);
             else
             {
-                status.Text = "Claude Haiku로 번역하는 중";
+                string busy = png != null ? "Claude Haiku로 이미지를 번역하는 중" : "Claude Haiku로 번역하는 중";
+                status.Text = busy;
                 body.Text = "번역 중…";
                 body.ForeColor = Color.FromArgb(165, 165, 178);
-                ticker.Tick += delegate { status.Text = "Claude Haiku로 번역하는 중 · " + (int)elapsed.Elapsed.TotalSeconds + "초"; };
+                ticker.Tick += delegate { status.Text = busy + " · " + (int)elapsed.Elapsed.TotalSeconds + "초"; };
                 ticker.Start();
             }
             Fit();
@@ -533,10 +667,10 @@ internal static class SelectionTranslator
             TakeForeground();
             body.Focus();
             body.Select(0, 0);
-            if (text == null) return;
+            if (text == null && png == null) return;
             Thread worker = new Thread(delegate()
             {
-                Result result = Translate(text, delegate(Process process) { running = process; if (finished) KillTree(process); });
+                Result result = Translate(text, png, delegate(Process process) { running = process; if (finished) KillTree(process); });
                 running = null;
                 if (finished) return;
                 try { BeginInvoke(new Action(delegate { ShowResult(result); })); } catch (InvalidOperationException) { }
@@ -548,7 +682,8 @@ internal static class SelectionTranslator
         {
             if (finished || IsDisposed) return;
             double seconds = elapsed.Elapsed.TotalSeconds;
-            Record((result.Ok ? "Translated " + text.Length + " -> " + result.Text.Length + " chars" : "Failed: " + result.Text.Replace("\n", " ")) +
+            string input = png != null ? "image of " + (png.Length / 1024) + " KB" : text.Length.ToString();
+            Record((result.Ok ? "Translated " + input + " -> " + result.Text.Length + " chars" : "Failed: " + result.Text.Replace("\n", " ")) +
                 " in " + seconds.ToString("0.0") + " s (claude: " + (result.Claude ?? "not found") + ")" +
                 (clipboardWarning != null ? "; " + clipboardWarning : ""));
             if (!result.Ok) { ShowProblem(result.Text); Fit(); return; }

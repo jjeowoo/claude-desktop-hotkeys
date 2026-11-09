@@ -10,7 +10,8 @@ using System.Windows.Automation;
 using System.Windows.Forms;
 
 // No network, clipboard access, chat submission, or background hotkey hook, except that
-// "translate" (Translate.cs) uses the clipboard and runs Claude Code's CLI on the selection.
+// "translate" (Translate.cs) uses the clipboard and runs Claude Code's CLI on the selection,
+// and "pin-image" (PinnedImage.cs) shows the clipboard's capture and translates it on request.
 // StrokesPlus launches this only when the user presses the configured hotkey.
 internal static class ReasoningSwitch
 {
@@ -33,7 +34,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "55-tasks-pane-close";
+    private const string BuildName = "57-pin-server";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?Opus\s+5\.5\b|(?:Claude\s+)?Opus\s+5\.5\s*$)";
     // Not ListItem: Claude's Chat tab exposes conversation text as list items.
@@ -56,7 +57,7 @@ internal static class ReasoningSwitch
         if (args.Length == 3 && args[0] == "--refresh-ime") return RefreshTextInput(args[1], args[2]);
         if (args.Length == 1 && args[0] == "translate") return SelectionTranslator.Run();
         if (args.Length == 1 && args[0] == "--translate-check") return SelectionTranslator.Check();
-        if (args.Length != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "input" && args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel" && args[0] != "send" && args[0] != "changes")) return 2;
+        if (args.Length == 1 && args[0] == "--translate-image-check") return SelectionTranslator.CheckImage();        if (args.Length != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "input" && args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel" && args[0] != "send" && args[0] != "changes")) return 2;
         // Screenshot coordinates and cursor coordinates must use physical pixels.
         SetProcessDpiAwarenessContext(new IntPtr(-4));
         int exit = RunLocked(args);
@@ -2161,6 +2162,7 @@ internal static class ReasoningSwitch
     {
         StrokesImageSearch.SelfTest();
         SelectionTranslator.SelfTest();
+        PinnedImage.SelfTest();
         BacktickClick.SelfTest();
         GptFocusSelfTest();
         ForegroundSelfTest();
