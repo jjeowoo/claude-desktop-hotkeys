@@ -10,8 +10,8 @@ using System.Windows.Automation;
 using System.Windows.Forms;
 
 // No network, clipboard access, chat submission, or background hotkey hook, except that
-// "translate" (Translate.cs) uses the clipboard and runs Claude Code's CLI on the selection,
-// and "pin-image" (PinnedImage.cs) shows the clipboard's capture and translates it on request.
+// "translate" (Translate.cs) uses the clipboard and runs Claude Code's CLI on the selection, or on
+// a StrokesPlus capture window's image when one is in front.
 // StrokesPlus launches this only when the user presses the configured hotkey.
 internal static class ReasoningSwitch
 {
@@ -34,7 +34,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "57-pin-server";
+    private const string BuildName = "59-locate-capture";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?Opus\s+5\.5\b|(?:Claude\s+)?Opus\s+5\.5\s*$)";
     // Not ListItem: Claude's Chat tab exposes conversation text as list items.
@@ -2162,7 +2162,7 @@ internal static class ReasoningSwitch
     {
         StrokesImageSearch.SelfTest();
         SelectionTranslator.SelfTest();
-        PinnedImage.SelfTest();
+        CaptureLocator.SelfTest();
         BacktickClick.SelfTest();
         GptFocusSelfTest();
         ForegroundSelfTest();

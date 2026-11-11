@@ -15,7 +15,8 @@ using System.Windows.Forms;
 
 // Ctrl+Alt+X in any app: copies the selection, puts the clipboard back, and shows a Korean
 // translation from Claude Code's CLI (`claude -p`, Haiku) in a popup by the mouse cursor.
-// A pinned capture (PinnedImage.cs) sends its image the same way, from its right-click menu.
+// Pressed on a StrokesPlus capture window (sp.DisplayImage, Shift+F1), it translates the text in
+// that capture instead, sending the image the same way.
 // The selected text or image reaches Claude only through the CLI's standard input and is never logged.
 internal static class SelectionTranslator
 {
@@ -31,6 +32,16 @@ internal static class SelectionTranslator
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindow(string className, string title);
     [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] private static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int count);
+    [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out ClientRect rect);
+    [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hwnd, ref Point point);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ClientRect { public int Left, Top, Right, Bottom; }
+
+    // StrokesPlus's sp.DisplayImage window; its image sits inside a padding of 2 pixels.
+    internal const string CaptureWindowTitle = "StrokesPlus.net Display Image Window";
+    private const int CapturePadding = 2;
 
     internal const string PopupTitle = "claude-desktop-hotkeys 번역";
     internal const string Prompt = "다음 텍스트를 자연스러운 한국어로 번역해. 설명 없이 번역문만 출력해:\n";
@@ -56,10 +67,11 @@ internal static class SelectionTranslator
 
     internal static int Run()
     {
+        IntPtr source = GetForegroundWindow();
+        if (IsCaptureWindow(WindowText(source))) return RunCapture(source);
         // System DPI awareness: WinForms scales the popup and the cursor shares its coordinates.
         SetProcessDpiAwarenessContext(new IntPtr(-2));
         Application.EnableVisualStyles();
-        IntPtr source = GetForegroundWindow();
         string text = null, problem = null;
         try
         {
@@ -77,6 +89,54 @@ internal static class SelectionTranslator
         if (problem != null) Record("Not translated: " + problem.Replace("\n", " "));
         ClosePreviousPopups();
         using (TranslationPopup popup = new TranslationPopup(source, problem == null ? text : null, null, problem))
+            Application.Run(popup);
+        return 0;
+    }
+
+    internal static bool IsCaptureWindow(string title)
+    {
+        return title != null && title.StartsWith(CaptureWindowTitle, StringComparison.Ordinal);
+    }
+
+    private static string WindowText(IntPtr window)
+    {
+        StringBuilder text = new StringBuilder(256);
+        GetWindowText(window, text, text.Capacity);
+        return text.ToString();
+    }
+
+    // The capture as the window shows it, read from the screen: the window is in front, and
+    // StrokesPlus may run elevated, where a message asking it to draw itself would be refused.
+    private static int RunCapture(IntPtr window)
+    {
+        // Per-monitor physical pixels, so the screen copy matches the window's own pixels.
+        SetProcessDpiAwarenessContext(new IntPtr(-4));
+        Application.EnableVisualStyles();
+        Bitmap image = null;
+        try
+        {
+            ClientRect client;
+            Point origin = Point.Empty;
+            if (GetClientRect(window, out client) && ClientToScreen(window, ref origin))
+            {
+                Rectangle area = Rectangle.Inflate(new Rectangle(origin.X, origin.Y, client.Right, client.Bottom), -CapturePadding, -CapturePadding);
+                if (area.Width > 0 && area.Height > 0)
+                {
+                    image = new Bitmap(area.Width, area.Height, PixelFormat.Format32bppArgb);
+                    using (Graphics graphics = Graphics.FromImage(image)) graphics.CopyFromScreen(area.Location, Point.Empty, area.Size);
+                }
+            }
+        }
+        catch (Exception error) { Record("Capture not read: " + error.Message); }
+        if (image == null)
+        {
+            ClosePreviousPopups();
+            using (TranslationPopup popup = new TranslationPopup(window, null, null, "캡처 창의 이미지를 읽지 못했습니다."))
+                Application.Run(popup);
+            return 0;
+        }
+        using (image)
+        using (Form popup = ImagePopup(window, image))
             Application.Run(popup);
         return 0;
     }
@@ -107,8 +167,7 @@ internal static class SelectionTranslator
         return result.Ok ? 0 : 1;
     }
 
-    // A pinned capture's translation popup. The caller closes its own earlier popup first:
-    // one in the caller's thread would not see the close message ClosePreviousPopups posts.
+    // A capture's translation popup.
     internal static Form ImagePopup(IntPtr source, Image image)
     {
         ClosePreviousPopups();
@@ -565,7 +624,9 @@ internal static class SelectionTranslator
                     throw new InvalidOperationException("Image translation encoding selftest failed.");
         }
         if (Normalize(" a\r\nb\rc \n") != "a\nb\nc" || !IsTerminal("WindowsTerminal", "") || !IsTerminal("", "ConsoleWindowClass") ||
-            IsTerminal("chrome", "Chrome_WidgetWin_1") || IsTerminal("notepad", "Notepad"))
+            IsTerminal("chrome", "Chrome_WidgetWin_1") || IsTerminal("notepad", "Notepad") ||
+            !IsCaptureWindow("StrokesPlus.net Display Image Window") || !IsCaptureWindow("StrokesPlus.net Display Image Window - a") ||
+            IsCaptureWindow("StrokesPlus.net") || IsCaptureWindow("") || IsCaptureWindow(null))
             throw new InvalidOperationException("Translation text or terminal selftest failed.");
     }
 
