@@ -111,9 +111,8 @@ internal static class StrokesImageSearch
         finally { bitmap.UnlockBits(data); }
     }
 
-    // The GPT popup is slightly translucent and blurs whatever lies behind it, so
-    // its pixels shift by a few levels with the conversation. Every pixel must
-    // still agree within the tolerance; the closest position wins.
+    // Finds the needle where every pixel agrees within the tolerance; the closest position
+    // wins. Used to report how far a popup that was not found was from matching.
     internal static object TolerantMatch(Bitmap needle, Bitmap haystack, int tolerance)
     {
         Stopwatch timer = Stopwatch.StartNew();

@@ -34,7 +34,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "61-refresh-waits-for-modifiers";
+    private const string BuildName = "62-claude-only";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModels = @"(?:Opus\s+5\.5|Fable\s+5\.2)";
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?" + ClaudeModels + @"\b|(?:Claude\s+)?" + ClaudeModels + @"\s*$)";
@@ -86,12 +86,7 @@ internal static class ReasoningSwitch
                 uint pid;
                 GetWindowThreadProcessId(targetWindow, out pid);
                 app = Process.GetProcessById((int)pid).ProcessName.ToLowerInvariant();
-                if (app != "chatgpt" && app != "claude") { RecordSkip(args[0] + " skipped: the app in front is " + app + "."); return 0; }
-                if ((args[0] == "status" || args[0] == "markdown" || args[0] == "tasks" || args[0] == "panel" || args[0] == "send" || args[0] == "changes") && app != "claude")
-                {
-                    RecordSkip(args[0] + " skipped: Claude only, the app in front is " + app + ".");
-                    return 0;
-                }
+                if (app != "claude") { RecordSkip(args[0] + " skipped: the app in front is " + app + "."); return 0; }
                 command = args[0];
                 // Clicks and the Right arrow key need the chord released first; a transient release
                 // can occur between chords. S, D, B, R, \ and G only press controls through UI Automation, which
@@ -116,8 +111,7 @@ internal static class ReasoningSwitch
                 RememberChatInput(root);
                 trace.AppendLine("Chat input lookup=" + inputTimer.ElapsedMilliseconds + " ms.");
                 if (args[0] == "status") { OpenArchivedSessions(root); return 0; }
-                if (app == "chatgpt") SwitchCodex(root, direction);
-                else SwitchClaude(root, direction);
+                SwitchClaude(root, direction);
                 return 0;
             }
             catch (OperationCanceledException error)
@@ -420,13 +414,6 @@ internal static class ReasoningSwitch
         }
         return found;
     }
-    private static int Effort(string text)
-    {
-        if (Regex.IsMatch(text, @"\b(extra[\s-]*high|xhigh|엑스트라)\b|매우\s*높음|아주\s*높음", RegexOptions.IgnoreCase)) return 2;
-        if (Regex.IsMatch(text, @"\bhigh\b|높음", RegexOptions.IgnoreCase)) return 1;
-        if (Regex.IsMatch(text, @"\bmedium\b|중간|보통", RegexOptions.IgnoreCase)) return 0;
-        return -1;
-    }
     private static bool EffortOption(string text, int value)
     {
         string[] patterns = {
@@ -454,236 +441,6 @@ internal static class ReasoningSwitch
         if (Regex.IsMatch(text, @"\bmedium\b|중간|보통", RegexOptions.IgnoreCase)) return 1;
         if (Regex.IsMatch(text, @"\blow\b|낮음", RegexOptions.IgnoreCase)) return 0;
         return -1;
-    }
-    private static int GptEffort(string text)
-    {
-        if (Regex.IsMatch(text, @"\bultra\b|울트라", RegexOptions.IgnoreCase)) return 4;
-        if (Regex.IsMatch(text, @"\b(extra[\s-]*high|xhigh)\b|매우\s*높음|아주\s*높음", RegexOptions.IgnoreCase)) return 3;
-        if (Regex.IsMatch(text, @"\bhigh\b|높음", RegexOptions.IgnoreCase)) return 2;
-        if (Regex.IsMatch(text, @"\bmedium\b|중간|보통", RegexOptions.IgnoreCase)) return 1;
-        if (Regex.IsMatch(text, @"\b(light|low)\b|낮음|가벼움", RegexOptions.IgnoreCase)) return 0;
-        return -1;
-    }
-    private static int NextGpt(int current, int direction)
-    {
-        if (current < 0 || current > 4) throw new InvalidOperationException("GPT's current effort is not Light, Medium, High, Extra High, or Ultra.");
-        return Math.Max(0, Math.Min(4, current + direction));
-    }
-    private static string GptLabel(int value) { return new[] { "Light", "Medium", "High", "Extra High", "Ultra" }[value]; }
-    private static AutomationElement CodexModelButton(AutomationElement root)
-    {
-        return CodexModelButton(Elements(root, ControlType.Button));
-    }
-    private static AutomationElement CodexModelButton(AutomationElement[] buttons)
-    {
-        // The popup also has a model link. Require effort text to select the composer button.
-        const string model = @"(?:GPT[\s-]*)?6\.1[\s-]+Sol\b";
-        AutomationElement found = null;
-        foreach (AutomationElement button in buttons)
-        {
-            string description = Name(button);
-            if (!Regex.IsMatch(description, model, RegexOptions.IgnoreCase) &&
-                (description.Length == 0 || Regex.IsMatch(description, @"model|모델", RegexOptions.IgnoreCase)))
-                description = Describe(button);
-            if (Regex.IsMatch(description, model, RegexOptions.IgnoreCase) && GptEffort(description) < 0)
-                description = Describe(button);
-            if (!Regex.IsMatch(description, model, RegexOptions.IgnoreCase) || GptEffort(description) < 0) continue;
-            if (found != null) throw new InvalidOperationException("More than one GPT model/effort control; no action taken.");
-            found = button;
-        }
-        return found;
-    }
-    private static bool IsSupportedGptMode(string name)
-    {
-        // The mode switch reads "..., current mode: Codex" or "...: ChatGPT"; both show the same slider.
-        return Regex.IsMatch(name, @"(mode|모드).*\b(Codex|ChatGPT)\b", RegexOptions.IgnoreCase);
-    }
-    // Mouse-free attempt, like Claude's: open the popup through UI Automation and set its
-    // slider if one is exposed with GPT's five steps. Not yet seen on a live ChatGPT window;
-    // anything unexpected closes what it opened and returns false for the image flow.
-    private static bool TrySetGptSlider(AutomationElement buttonModel, int current, int target)
-    {
-        object pattern;
-        if (buttonModel == null || !buttonModel.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out pattern))
-        {
-            trace.AppendLine("GPT model button has no expand pattern; using the image flow.");
-            return false;
-        }
-        ExpandCollapsePattern popup = (ExpandCollapsePattern)pattern;
-        AutomationElement before = null;
-        try { before = AutomationElement.FocusedElement; if (!IsTextEntry(before)) before = null; } catch { before = null; }
-        bool opened = false;
-        try
-        {
-            EnsureForeground();
-            popup.Expand();
-            opened = true;
-            System.Windows.Rect anchor = buttonModel.Current.BoundingRectangle;
-            Condition sliderCondition = new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Slider);
-            RangeValuePattern range = null;
-            Stopwatch timer = Stopwatch.StartNew();
-            do
-            {
-                EnsureForeground();
-                foreach (AutomationElement candidate in targetRoot.FindAll(TreeScope.Descendants, sliderCondition))
-                    try
-                    {
-                        System.Windows.Rect bounds = candidate.Current.BoundingRectangle;
-                        if (!candidate.Current.IsOffscreen && !bounds.IsEmpty && Math.Abs(bounds.Y - anchor.Y) < 400 &&
-                            Math.Abs(bounds.X - anchor.X) < 500 && candidate.TryGetCurrentPattern(RangeValuePattern.Pattern, out pattern))
-                        { range = (RangeValuePattern)pattern; break; }
-                    }
-                    catch { }
-                if (range != null) break;
-                Thread.Sleep(25);
-            } while (timer.ElapsedMilliseconds < 700);
-            if (range == null) { trace.AppendLine("GPT slider not exposed to UI Automation; using the image flow."); return false; }
-            double minimum = range.Current.Minimum, maximum = range.Current.Maximum;
-            if (maximum - minimum != 4 || range.Current.IsReadOnly || (int)Math.Round(range.Current.Value - minimum) != current)
-            {
-                trace.AppendLine("GPT slider range=" + minimum + ".." + maximum + ", value=" + range.Current.Value + "; using the image flow.");
-                return false;
-            }
-            range.SetValue(minimum + target);
-            int confirmed = -1;
-            timer.Restart();
-            do
-            {
-                Thread.Sleep(25);
-                try { confirmed = (int)Math.Round(range.Current.Value - minimum); } catch { }
-            } while (confirmed != target && timer.ElapsedMilliseconds < 1000);
-            trace.AppendLine("GPT slider set through UI Automation; confirmed=" + confirmed);
-            if (confirmed != target) throw new InvalidOperationException("GPT's slider did not confirm " + GptLabel(target) + ".");
-            popup.Collapse();
-            opened = false;
-            int shown = -1;
-            timer.Restart();
-            do
-            {
-                shown = CurrentButtonEffort(buttonModel, true);
-                if (shown == target) break;
-                Thread.Sleep(25);
-            } while (timer.ElapsedMilliseconds < 1000);
-            trace.AppendLine("GPT model button after close=" + shown);
-            if (shown != target) throw new InvalidOperationException("GPT's model button did not confirm " + GptLabel(target) + ".");
-            bool restored = false;
-            if (before != null)
-                restored = RestoreTextFocus(before);
-            Record("GPT 6.1 Sol: " + GptLabel(target) + " (slider verified)" + (before == null ? "" : restored ? "; chat input focused" : "; focus not restored"));
-            return true;
-        }
-        // A vanished element or a refused value means the slider cannot be driven this way.
-        catch (ElementNotAvailableException error) { trace.AppendLine("GPT slider attempt failed (" + error.Message + "); using the image flow."); return false; }
-        catch (ArgumentException error) { trace.AppendLine("GPT slider attempt failed (" + error.Message + "); using the image flow."); return false; }
-        finally
-        {
-            // Leave the popup closed so the image flow opens it with its usual mouse click.
-            if (opened)
-                try { popup.Collapse(); Thread.Sleep(150); } catch { }
-        }
-    }
-    private static void SwitchCodex(AutomationElement root, int direction)
-    {
-        EnsureForeground();
-        int current;
-        bool wasOpen = GptImageSlider.TryReadCurrent(targetWindow, out current);
-        AutomationElement buttonModel = null;
-        trace.AppendLine("GPT popup initially open=" + wasOpen + ", thumb=" + current);
-        // An open popup can hide the composer's controls from accessibility.
-        // Its exact GPT-6.1 Sol image identifies the intended model directly.
-        if (!wasOpen)
-        {
-            bool supportedMode = false;
-            AutomationElement[] buttons = Elements(root, ControlType.Button);
-            foreach (AutomationElement button in buttons)
-                if (IsSupportedGptMode(Name(button))) supportedMode = true;
-            trace.AppendLine("ChatGPT or Codex mode=" + supportedMode);
-            if (!supportedMode) throw new InvalidOperationException("The active ChatGPT window must be in ChatGPT or Codex mode.");
-            buttonModel = CodexModelButton(buttons);
-        }
-        Stopwatch readTimer = Stopwatch.StartNew();
-        if (wasOpen)
-        {
-            while (current < 0 && readTimer.ElapsedMilliseconds < 1400)
-            {
-                EnsureForeground();
-                Thread.Sleep(20);
-                if (!GptImageSlider.TryReadCurrent(targetWindow, out current))
-                    throw new InvalidOperationException("GPT popup closed while reading its thumb; no click sent.");
-            }
-            if (current < 0) throw new InvalidOperationException("Cannot identify one GPT slider thumb; no click sent.");
-            trace.AppendLine("Current read from already open GPT popup: " + GptLabel(current));
-        }
-        else
-        {
-            do
-            {
-                EnsureForeground();
-                if (buttonModel != null) break;
-                buttonModel = CodexModelButton(root);
-                if (buttonModel != null) break;
-                Thread.Sleep(20);
-            } while (readTimer.ElapsedMilliseconds < 1400);
-            if (buttonModel == null) throw new InvalidOperationException("GPT 6.1 Sol is not selected, or its model control is unavailable.");
-            string modelDescription = Name(buttonModel);
-            if (GptEffort(modelDescription) < 0) modelDescription = Describe(buttonModel);
-            current = GptEffort(modelDescription);
-            trace.AppendLine("model=" + modelDescription + ", current=" + current);
-        }
-        int target = NextGpt(current, direction);
-        if (target == current)
-        {
-            FinishWithInputFocus("GPT 6.1 Sol: " + GptLabel(target) + " (unchanged)");
-            return;
-        }
-        if (!wasOpen && TrySetGptSlider(buttonModel, current, target)) return;
-        EnsureForeground();
-        if (!wasOpen)
-        {
-            // Invoke produces a synthetic click and skips the app's pointer-down
-            // handler. Open exactly as a mouse click so positioning/focus agree.
-            ClickModelButton(buttonModel);
-        }
-        ClickPoint(delegate
-        {
-            System.Drawing.Point freshPoint;
-            Stopwatch openTimer = Stopwatch.StartNew();
-            do
-            {
-                EnsureForeground();
-                if (GptImageSlider.TryLocate(targetWindow, current, target, out freshPoint))
-                {
-                    trace.AppendLine("StrokesPlus image match succeeded; target=" + GptLabel(target));
-                    return freshPoint;
-                }
-                Thread.Sleep(20);
-            } while (openTimer.ElapsedMilliseconds < 1600);
-            throw new InvalidOperationException("GPT's slider image was not found; no click sent. Check theme and display scale.");
-        }, true);
-        // Confirm the changed thumb before dismissing the popup and restoring
-        // the composer. Do not inject Escape or force keyboard focus.
-        Stopwatch verifyTimer = Stopwatch.StartNew();
-        int confirmed = -1;
-        do
-        {
-            EnsureForeground();
-            bool popupVisible = GptImageSlider.TryReadCurrent(targetWindow, out confirmed);
-            if (!popupVisible)
-            {
-                // If the app itself dismisses the popup, use the restored composer label.
-                confirmed = CurrentButtonEffort(buttonModel, true);
-                if (confirmed < 0)
-                {
-                    buttonModel = CodexModelButton(root);
-                    confirmed = CurrentButtonEffort(buttonModel, true);
-                }
-            }
-            if (confirmed == target) break;
-            Thread.Sleep(20);
-        } while (verifyTimer.ElapsedMilliseconds < 2000);
-        trace.AppendLine("confirmed=" + confirmed);
-        if (confirmed != target) throw new InvalidOperationException("GPT's slider click did not confirm " + GptLabel(target) + ".");
-        FinishWithInputFocus("GPT 6.1 Sol: " + GptLabel(target) + " (image verified)");
     }
     private static bool IsModelControl(string name)
     {
@@ -835,7 +592,7 @@ internal static class ReasoningSwitch
         bool alreadyOpen = trigger.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out expandPattern) &&
             ((ExpandCollapsePattern)expandPattern).Current.ExpandCollapseState == ExpandCollapseState.Expanded;
         alreadyOpen = alreadyOpen || ClaudeImageSlider.IsPopupVisible(targetWindow);
-        if (!alreadyOpen) ClickControlButton(trigger, false);
+        if (!alreadyOpen) ClickControlButton(trigger);
 
         ClickPoint(delegate
         {
@@ -863,11 +620,11 @@ internal static class ReasoningSwitch
             EnsureForeground();
             if (!ClaudeImageSlider.TryReadCurrent(targetWindow, out confirmed))
             {
-                confirmed = CurrentButtonEffort(trigger, false);
+                confirmed = CurrentButtonEffort(trigger);
                 if (confirmed < 0)
                 {
                     trigger = ClaudeEffortTrigger(root);
-                    confirmed = CurrentButtonEffort(trigger, false);
+                    confirmed = CurrentButtonEffort(trigger);
                 }
             }
             if (confirmed == target) break;
@@ -1351,7 +1108,7 @@ internal static class ReasoningSwitch
             ((ExpandCollapsePattern)expandPattern).Current.ExpandCollapseState == ExpandCollapseState.Expanded;
         System.Drawing.Point startCursor, lastPoint = System.Drawing.Point.Empty, now;
         bool haveCursor = GetCursorPos(out startCursor);
-        if (!alreadyOpen) ClickControlButton(buttonModel, false);
+        if (!alreadyOpen) ClickControlButton(buttonModel);
         int target;
         try
         {
@@ -1649,15 +1406,13 @@ internal static class ReasoningSwitch
         }
         Record("Sessions: Archived" + (already ? " (already open)" : " (verified)"));
     }
-    private static int CurrentButtonEffort(AutomationElement button, bool gpt)
+    private static int CurrentButtonEffort(AutomationElement button)
     {
         try
         {
             if (button == null || button.Current.IsOffscreen || !button.Current.IsEnabled) return -1;
             // Read the live label, never the snapshot cached before the click.
             string name = button.Current.Name ?? "";
-            if (gpt)
-                return Regex.IsMatch(name, @"(?:GPT[\s-]*)?6\.1[\s-]+Sol\b", RegexOptions.IgnoreCase) ? GptEffort(name) : -1;
             return IsEffortTrigger(name) ? ClaudeEffort(name) : -1;
         }
         catch { return -1; }
@@ -1682,11 +1437,7 @@ internal static class ReasoningSwitch
         }
         return found;
     }
-    private static void ClickModelButton(AutomationElement button)
-    {
-        ClickControlButton(button, true);
-    }
-    private static void ClickControlButton(AutomationElement button, bool gpt)
+    private static void ClickControlButton(AutomationElement button)
     {
         ClickPoint(delegate
         {
@@ -1701,11 +1452,10 @@ internal static class ReasoningSwitch
             System.Windows.Point center = new System.Windows.Point(bounds.X + bounds.Width / 2, bounds.Y + bounds.Height / 2);
             if (targetRoot == null || !targetRoot.Current.BoundingRectangle.Contains(center))
                 throw new InvalidOperationException("Reasoning button is outside the active window; no click sent.");
-            trace.AppendLine("Opening " + (gpt ? "GPT model" : "Claude effort") + " popup with a mouse click.");
+            trace.AppendLine("Opening Claude effort popup with a mouse click.");
             System.Drawing.Rectangle buttonBounds = new System.Drawing.Rectangle((int)Math.Floor(bounds.X),
                 (int)Math.Floor(bounds.Y), (int)Math.Ceiling(bounds.Width), (int)Math.Ceiling(bounds.Height));
-            if (gpt) GptImageSlider.ExpectNearButton(targetWindow, buttonBounds);
-            else ClaudeImageSlider.ExpectNearButton(targetWindow, buttonBounds);
+            ClaudeImageSlider.ExpectNearButton(targetWindow, buttonBounds);
             return new System.Drawing.Point((int)Math.Round(center.X), (int)Math.Round(center.Y));
         });
     }
@@ -1722,14 +1472,8 @@ internal static class ReasoningSwitch
             WaitForInputRelease();
             point = locate();
             EnsureForeground();
-            if (protectTextEntry)
-            {
-                // GPT can retain accessibility focus on the composer while its
-                // popover is visible. Only a dismissed popup makes that focus
-                // evidence that the user has returned to typing.
-                if (TextEntryFocused() && !(app == "chatgpt" && GptImageSlider.IsPopupVisible(targetWindow)))
-                    throw new OperationCanceledException("Text entry regained focus; no slider click sent.");
-            }
+            if (protectTextEntry && TextEntryFocused())
+                throw new OperationCanceledException("Text entry regained focus; no slider click sent.");
             if (!InputHeld()) break;
             if (locateTimer.ElapsedMilliseconds >= 4000)
                 throw new InvalidOperationException("Release Ctrl, Alt and the arrow key, then press the hotkey again.");
@@ -1928,7 +1672,6 @@ internal static class ReasoningSwitch
     }
     private static void FinishWithInputFocus(string message)
     {
-        if (app == "chatgpt") { FinishGptWithInputFocus(message); return; }
         bool focused = false;
         try
         {
@@ -1960,8 +1703,7 @@ internal static class ReasoningSwitch
                                 throw new OperationCanceledException("Window resized before input focus; no click sent.");
                             System.Windows.Rect input = chatInputBounds;
                             input.Offset(currentWindow.X - chatInputWindowBounds.X, currentWindow.Y - chatInputWindowBounds.Y);
-                            System.Drawing.Rectangle popup = app == "chatgpt" ? GptImageSlider.PopupBounds :
-                                claudeMenuFlow ? claudeMenuBounds : ClaudeImageSlider.PopupBounds;
+                            System.Drawing.Rectangle popup = claudeMenuFlow ? claudeMenuBounds : ClaudeImageSlider.PopupBounds;
                             popup.Inflate(3, 3);
                             System.Drawing.Point point;
                             if (!TryInputClickPoint(input, popup, out point))
@@ -1988,138 +1730,6 @@ internal static class ReasoningSwitch
         trace.AppendLine("Chat input focus confirmed=" + focused);
         Record(message + (focused ? "; chat input focused" : "; chat input focus unconfirmed"));
     }
-    private struct GptFocusState
-    {
-        internal bool PopupVisible, ChatFocused, OtherTextFocused;
-        internal bool Complete { get { return !PopupVisible && ChatFocused; } }
-    }
-    private static GptFocusState CompleteGptFocus(Func<GptFocusState> readState, Action<int> clickInput,
-        Func<long> elapsed, Action poll, Action<string> log)
-    {
-        GptFocusState state = readState();
-        log("GPT finish initial: popup=" + state.PopupVisible + ", chat focus=" + state.ChatFocused);
-        if (state.Complete || (!state.PopupVisible && state.OtherTextFocused)) return state;
-        for (int attempt = 1; attempt <= 2; attempt++)
-        {
-            clickInput(attempt);
-            long started = elapsed(), completeSince = -1;
-            do
-            {
-                state = readState();
-                long now = elapsed();
-                if (state.Complete)
-                {
-                    if (completeSince < 0) completeSince = now;
-                    // Check two frames so a pending popup close/focus event
-                    // cannot be mistaken for a finished transition.
-                    if (now - completeSince >= 20) return state;
-                }
-                else completeSince = -1;
-                if (!state.PopupVisible && state.OtherTextFocused) return state;
-                if (now - started >= 300) break;
-                poll();
-            } while (true);
-            log("GPT input click " + attempt + " result: popup=" + state.PopupVisible + ", chat focus=" + state.ChatFocused);
-            if (attempt == 1) log("GPT dismissal/focus unconfirmed; one verified retry.");
-        }
-        return state;
-    }
-    private static GptFocusState ReadGptFocusState(bool fullSearch)
-    {
-        EnsureForeground();
-        bool popup = fullSearch ? GptImageSlider.IsPopupVisible(targetWindow) : GptImageSlider.IsPopupVisibleAtLastLocation(targetWindow);
-        AutomationElement focused = AutomationElement.FocusedElement;
-        bool chat = ChatInputFocused(focused);
-        return new GptFocusState { PopupVisible = popup, ChatFocused = chat, OtherTextFocused = !chat && IsTextEntry(focused) };
-    }
-    private static void FinishGptWithInputFocus(string message)
-    {
-        GptFocusState final = new GptFocusState { PopupVisible = true };
-        bool stateRead = false;
-        try
-        {
-            EnsureForeground();
-            if (chatInputBounds.IsEmpty) RememberChatInput(targetRoot);
-            System.Windows.Rect initialWindow = targetRoot.Current.BoundingRectangle;
-            if (chatInputBounds.IsEmpty || Math.Abs(initialWindow.Width - chatInputWindowBounds.Width) > 1 ||
-                Math.Abs(initialWindow.Height - chatInputWindowBounds.Height) > 1)
-            {
-                trace.AppendLine("GPT finish skipped: chat input position unavailable for this window size.");
-                final = ReadGptFocusState(true);
-                stateRead = true;
-            }
-            else
-            {
-                bool initialRead = true;
-                final = CompleteGptFocus(delegate
-                {
-                    GptFocusState state = ReadGptFocusState(initialRead);
-                    initialRead = false;
-                    final = state;
-                    stateRead = true;
-                    return state;
-                }, delegate(int attempt)
-                {
-                    ClickPoint(delegate
-                    {
-                        // Recheck the popup before every actual click. Focus
-                        // alone must never skip dismissing a visible GPT menu.
-                        bool visible = GptImageSlider.IsPopupVisible(targetWindow);
-                        if (!visible && TextEntryFocused())
-                            throw new OperationCanceledException("Popup dismissed and text entry focused; no extra input click.");
-                        System.Windows.Rect currentWindow = targetRoot.Current.BoundingRectangle;
-                        if (Math.Abs(currentWindow.Width - initialWindow.Width) > 1 || Math.Abs(currentWindow.Height - initialWindow.Height) > 1)
-                            throw new OperationCanceledException("Window resized before GPT input focus; no click sent.");
-                        System.Windows.Rect input = chatInputBounds;
-                        input.Offset(currentWindow.X - chatInputWindowBounds.X, currentWindow.Y - chatInputWindowBounds.Y);
-                        System.Drawing.Rectangle popup = visible ? GptImageSlider.PopupBounds : System.Drawing.Rectangle.Empty;
-                        if (visible) popup.Inflate(3, 3);
-                        System.Drawing.Point point;
-                        if (!TryInputClickPoint(input, popup, out point))
-                            throw new OperationCanceledException("Chat input is covered by GPT's popup; no click sent.");
-                        return point;
-                    }, true);
-                    trace.AppendLine("GPT chat input click " + attempt + " at " + operationTimer.ElapsedMilliseconds + " ms.");
-                }, delegate { return operationTimer.ElapsedMilliseconds; }, delegate { Thread.Sleep(10); }, delegate(string value) { trace.AppendLine(value); });
-            }
-        }
-        catch (OperationCanceledException error)
-        {
-            trace.AppendLine("GPT finish stopped: " + error.Message);
-            try { if (GetForegroundWindow() == targetWindow) { final = ReadGptFocusState(true); stateRead = true; } } catch { }
-        }
-        catch (Exception error) { trace.AppendLine("GPT finish read/click failed: " + error.GetType().Name); }
-        trace.AppendLine("GPT popup closed confirmed=" + (stateRead && !final.PopupVisible) + "; chat input focus confirmed=" + (stateRead && final.ChatFocused));
-        Record(message + (!stateRead ? "; popup/input focus unconfirmed" : final.Complete ? "; popup closed; chat input focused" :
-            final.PopupVisible ? "; reasoning popup still open; chat input focus unconfirmed" : "; popup closed; chat input focus unconfirmed"));
-    }
-    private static void GptFocusSelfTest()
-    {
-        // Replay retained textbox focus, a missed outside click, and a pending
-        // focus event without any window, screenshot or injected input.
-        for (int scenario = 0; scenario < 7; scenario++)
-        {
-            int clicks = 0;
-            long clock = 0;
-            int test = scenario;
-            GptFocusState result = CompleteGptFocus(delegate
-            {
-                if (test == 0) return new GptFocusState { ChatFocused = true };
-                if (test == 3) return new GptFocusState { OtherTextFocused = true };
-                if (test == 4) return new GptFocusState { PopupVisible = true, ChatFocused = true };
-                if (clicks == 0) return new GptFocusState { PopupVisible = true, ChatFocused = test == 1 };
-                if (test == 2 && clicks == 1) return new GptFocusState { PopupVisible = true };
-                if (test == 5 && clicks == 1) return new GptFocusState();
-                if (test == 6 && clicks == 1) return new GptFocusState { ChatFocused = clock < 20 };
-                return new GptFocusState { ChatFocused = true };
-            }, delegate(int attempt) { clicks++; }, delegate { return clock; },
-                delegate { clock += 10; }, delegate(string value) { });
-            int expectedClicks = test == 0 || test == 3 ? 0 : test == 1 ? 1 : 2;
-            bool expectedComplete = test != 3 && test != 4;
-            if (clicks != expectedClicks || result.Complete != expectedComplete || (test == 4 && !result.PopupVisible))
-                throw new InvalidOperationException("GPT popup/input completion regression failed: scenario " + test);
-        }
-    }
     private static void WriteDiagnostic(Exception error)
     {
         try
@@ -2134,8 +1744,8 @@ internal static class ReasoningSwitch
                     foreach (AutomationElement item in Elements(targetRoot, type))
                     {
                         string name = Name(item);
-                        if (!IsEffortChoice(name) && !IsEffortTrigger(name) && !(app == "claude" && ClaudeEffort(name) >= 0 && name.Length < 60) &&
-                            !Regex.IsMatch(name, ClaudeModelPattern + @"|^(?:GPT[\s-]*)?6\.1[\s-]+Sol\b", RegexOptions.IgnoreCase)) continue;
+                        if (!IsEffortChoice(name) && !IsEffortTrigger(name) && !(ClaudeEffort(name) >= 0 && name.Length < 60) &&
+                            !Regex.IsMatch(name, ClaudeModelPattern, RegexOptions.IgnoreCase)) continue;
                         if (name.Length > 180) name = name.Substring(0, 180);
                         details.Append(type.ProgrammaticName + " name=" + name + " patterns=");
                         foreach (AutomationPattern pattern in item.GetSupportedPatterns()) details.Append(pattern.ProgrammaticName + " ");
@@ -2222,7 +1832,6 @@ internal static class ReasoningSwitch
         SelectionTranslator.SelfTest();
         CaptureLocator.SelfTest();
         BacktickClick.SelfTest();
-        GptFocusSelfTest();
         ForegroundSelfTest();
         ModifierWaitSelfTest();
         // Protect the final click from search fields, off-window edits and popup overlap.
@@ -2246,10 +1855,7 @@ internal static class ReasoningSwitch
         if (!TryInputClickPoint(singleLineInput, System.Drawing.Rectangle.Empty, out inputPoint) ||
             !singleLineInput.Contains(new System.Windows.Point(inputPoint.X, inputPoint.Y)))
             throw new InvalidOperationException("Short Claude input click must stay inside its text area.");
-        if (Effort("6.1 Sol High") != 1 || Effort("6.1 Sol Extra High") != 2 || Effort("Opus 5.5 Medium") != 0 ||
-            Effort("xHigh") != 2 || Effort("highest") != -1 || Effort("매우 높음") != 2 ||
-            Effort("노력: 엑스트라") != 2 || Effort("노력: 높음") != 1 || Effort("노력: 보통") != 0 ||
-            EffortOption("Extra High", 1) || !EffortOption("Extra High", 2)) return 1;
+        if (EffortOption("Extra High", 1) || !EffortOption("Extra High", 2)) return 1;
         // Sessions page tab names; Markdown view button names.
         if (!IsTasksLabel("백그라운드 작업") || !IsTasksLabel("백그라운드 작업 4") || !IsTasksLabel("Background tasks 12") ||
             IsTasksLabel("백그라운드 작업 지우기") || IsTasksLabel("채팅 및 백그라운드 작업 크기 조정"))
@@ -2283,11 +1889,6 @@ internal static class ReasoningSwitch
         if (ClaudeEffort("노력: 보통") != 1 || ClaudeEffort("노력: 매우 높음") != 3 ||
             ClaudeEffort("노력: xHigh") != 3 || ClaudeEffort("노력: 울트라코드") != 5 ||
             ClaudeEffort("unknown") != -1) return 1;
-        string[] gpt = { "GPT-6.1 Sol Light", "GPT-6.1 Sol Medium", "GPT-6.1 Sol High", "GPT-6.1 Sol Extra High", "GPT-6.1 Sol Ultra" };
-        for (int level = 0; level < 5; level++)
-            if (GptEffort(gpt[level]) != level || NextGpt(level, 1) != (level == 4 ? 4 : level + 1) ||
-                NextGpt(level, -1) != (level == 0 ? 0 : level - 1)) return 1;
-        if (GptEffort("GPT-6.1 Sol") != -1) return 1;
         string[] modelNames = { "모델: Opus 5.5", "Model: Opus 5.5", "Opus 5.5", " Opus 5.5", "모델: Fable 5.2", "Model: Fable 5.2 High", "Fable 5.2", "모델: Claude Fable 5.2 최대" };
         string[] sessionNames = { "유휴 가이드 Opus 5.5 업그레이드", "가이드 Opus 5.5 업그레이드에 대한 더 많은 옵션", "Opus 5.5 업그레이드에 대한 더 많은 옵션", "유휴 Fable 5.2 지원 추가", "Fable 5.2 지원에 대한 더 많은 옵션", "모델: Sonnet 5.5" };
         foreach (string name in modelNames) if (!Regex.IsMatch(name, ClaudeModelPattern, RegexOptions.IgnoreCase)) return 1;
@@ -2311,11 +1912,8 @@ internal static class ReasoningSwitch
             if (ChatEffortOption(name) != -1) return 1;
         if (!IsEffortTrigger("노력 중간") || ClaudeEffort("노력 중간") != 1 || ClaudeEffort("모델: Opus 5.5 엑스트라") != 3 ||
             ClaudeEffort("모델: Opus 5.5") != -1) return 1;
-        if (!IsSupportedGptMode("모드 전환, 현재 모드: Codex") || !IsSupportedGptMode("모드 전환, 현재 모드: ChatGPT") ||
-            !IsSupportedGptMode("Switch mode, current mode: ChatGPT") || IsSupportedGptMode("모드 전환, 현재 모드: 이미지") ||
-            IsSupportedGptMode("ChatGPT")) return 1;
         bool rejected = false;
         try { NextClaude(-1, 1); } catch (InvalidOperationException) { rejected = true; }
-        return rejected && ClaudeImageSlider.SelfTest() && GptImageSlider.SelfTest() ? 0 : 1;
+        return rejected && ClaudeImageSlider.SelfTest() ? 0 : 1;
     }
 }

@@ -5,11 +5,11 @@ $wpf=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\WPF'
 if(-not (Test-Path -LiteralPath $compiler)){throw 'The x64 .NET Framework C# compiler is missing.'}
 $output=[IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Path $output -Force | Out-Null
-$references=@('Claude-effort-reference.png','GPT-effort-reference.png','GPT-effort-high-reference.png','GPT-closed-reference.png')
+$references=@('Claude-effort-reference.png')
 if($output -ine [IO.Path]::GetFullPath($PSScriptRoot)){
     foreach($name in $references){Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $output $name) -Force}
 }
-$sources=@('ReasoningSwitch.cs','GptImageSlider.cs','ClaudeImageSlider.cs','StrokesImageSearch.cs','TypeAhead.cs','Translate.cs','CaptureLocator.cs','BacktickClick.cs','Program.cs') | ForEach-Object {Join-Path $PSScriptRoot $_}
+$sources=@('ReasoningSwitch.cs','ClaudeImageSlider.cs','StrokesImageSearch.cs','TypeAhead.cs','Translate.cs','CaptureLocator.cs','BacktickClick.cs','Program.cs') | ForEach-Object {Join-Path $PSScriptRoot $_}
 # The build name is defined once, in ReasoningSwitch.cs.
 $build=[regex]::Match((Get-Content -LiteralPath $sources[0] -Raw),'BuildName\s*=\s*"([^"]+)"').Groups[1].Value
 if(-not $build){throw 'BuildName was not found in ReasoningSwitch.cs.'}
