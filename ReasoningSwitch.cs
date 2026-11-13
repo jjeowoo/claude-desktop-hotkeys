@@ -34,7 +34,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "60-fable-5.2";
+    private const string BuildName = "61-refresh-waits-for-modifiers";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModels = @"(?:Opus\s+5\.5|Fable\s+5\.2)";
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?" + ClaudeModels + @"\b|(?:Claude\s+)?" + ClaudeModels + @"\s*$)";
@@ -190,10 +190,59 @@ internal static class ReasoningSwitch
         try { app = Process.GetProcessById((int)pid).ProcessName.ToLowerInvariant(); } catch { return 0; }
         string result;
         if (GetForegroundWindow() != targetWindow) result = "IME refresh skipped: the window is no longer in front.";
-        else result = BounceActivation();
+        else
+        {
+            // Send now and the pane toggles start without waiting for the hotkey's Ctrl and Alt, so
+            // those can still be down here. A modifier pressed in Claude and released while the
+            // hidden window is in front leaves Claude eating the next key (seen with Alt,
+            // 2026-10-19), so the switch waits for them to come up.
+            Stopwatch timer = Stopwatch.StartNew();
+            long waited = ModifierWait(ModifierHeld, delegate { return timer.ElapsedMilliseconds; }, delegate { Thread.Sleep(5); });
+            if (GetForegroundWindow() != targetWindow) result = "IME refresh skipped: the window is no longer in front.";
+            else result = BounceActivation() + (waited == 0 ? "" : waited < 0 ? "; modifier keys still held after " + ModifierWaitLimit + " ms" :
+                "; waited " + waited + " ms for modifier keys");
+        }
         try { File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "last-action-" + app + ".txt"), result + Environment.NewLine); } catch { }
         AppendHistory(result + Environment.NewLine);
         return 0;
+    }
+    private const int ModifierWaitLimit = 700;
+    private static bool ModifierHeld() { return IsDown(17) || IsDown(18) || IsDown(16) || IsDown(91) || IsDown(92); }
+    // 0 when no modifier was down; otherwise the time until all had been up for 20 ms, or -1 at the limit.
+    private static long ModifierWait(Func<bool> held, Func<long> elapsed, Action poll)
+    {
+        if (!held()) return 0;
+        long start = elapsed(), releasedSince = -1;
+        while (elapsed() - start < ModifierWaitLimit)
+        {
+            poll();
+            long now = elapsed();
+            if (held()) releasedSince = -1;
+            else
+            {
+                if (releasedSince < 0) releasedSince = now;
+                if (now - releasedSince >= 20) return now - start;
+            }
+        }
+        return -1;
+    }
+    private static void ModifierWaitSelfTest()
+    {
+        // Replay no modifier, one released at 100 ms, one that bounces before its release, and
+        // one that stays down, without reading the keyboard.
+        for (int scenario = 0; scenario < 4; scenario++)
+        {
+            long clock = 0;
+            int test = scenario;
+            long waited = ModifierWait(delegate
+            {
+                if (test == 0) return false;
+                if (test == 3) return true;
+                return clock < 100 && !(test == 2 && clock >= 50 && clock < 60);
+            }, delegate { return clock; }, delegate { clock += 5; });
+            bool passed = test == 0 ? waited == 0 && clock == 0 : test == 3 ? waited == -1 && clock >= ModifierWaitLimit : waited == 120;
+            if (!passed) throw new InvalidOperationException("Modifier wait regression failed: scenario " + test);
+        }
     }
     private static string BounceActivation()
     {
@@ -2175,6 +2224,7 @@ internal static class ReasoningSwitch
         BacktickClick.SelfTest();
         GptFocusSelfTest();
         ForegroundSelfTest();
+        ModifierWaitSelfTest();
         // Protect the final click from search fields, off-window edits and popup overlap.
         System.Windows.Rect testWindow = new System.Windows.Rect(0, 0, 1000, 900);
         System.Windows.Rect testInput = new System.Windows.Rect(200, 600, 600, 100);
