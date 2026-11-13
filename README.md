@@ -35,8 +35,8 @@ StrokesPlus.net 단축키로 ChatGPT Windows 앱과 Claude Desktop을 조작하�
 | 앱 · 모델 | 단계 |
 |---|---|
 | ChatGPT · GPT-6.1 Sol | Light → Medium → High → Extra High → Ultra |
-| Claude Code 탭 · Opus 5.5 | 낮음 → 중간 → 높음 → 엑스트라 → 최대 → Ultracode |
-| Claude Chat 탭 · Opus 5.5 | 낮음 → 중간 → 높음 → 엑스트라 → 최대 |
+| Claude Code 탭 · Opus 5.5, Fable 5.2 | 낮음 → 중간 → 높음 → 엑스트라 → 최대 → Ultracode |
+| Claude Chat 탭 · Opus 5.5, Fable 5.2 | 낮음 → 중간 → 높음 → 엑스트라 → 최대 |
 
 - ChatGPT는 ChatGPT 모드와 Codex 모드 모두 지원합니다. Claude의 `중간`은 `보통`으로 표시돼도 인식합니다.
 - 양 끝에서는 현재 단계를 유지합니다.

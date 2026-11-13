@@ -34,9 +34,17 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "59-locate-capture";
+    private const string BuildName = "60-fable-5.2";
     // Anchored: sidebar session titles may also contain the model name.
-    private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?Opus\s+5\.5\b|(?:Claude\s+)?Opus\s+5\.5\s*$)";
+    private const string ClaudeModels = @"(?:Opus\s+5\.5|Fable\s+5\.2)";
+    private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?" + ClaudeModels + @"\b|(?:Claude\s+)?" + ClaudeModels + @"\s*$)";
+    // The selected model as its button names it, for the result line.
+    private static string claudeModel = "Claude";
+    private static string ClaudeModelLabel(string name)
+    {
+        Match match = Regex.Match(name, ClaudeModels, RegexOptions.IgnoreCase);
+        return match.Success ? Regex.Replace(match.Value, @"\s+", " ") : "Claude";
+    }
     // Not ListItem: Claude's Chat tab exposes conversation text as list items.
     private static readonly ControlType[] choiceTypes = {
         ControlType.RadioButton, ControlType.MenuItem,
@@ -733,7 +741,7 @@ internal static class ReasoningSwitch
         bool restored = false;
         if (before != null)
             restored = RestoreTextFocus(before);
-        Record("Opus 5.5: " + Label(target) + " (slider verified)" + (before == null ? "" : restored ? "; chat input focused" : "; focus not restored"));
+        Record(claudeModel + ": " + Label(target) + " (slider verified)" + (before == null ? "" : restored ? "; chat input focused" : "; focus not restored"));
         return true;
     }
     private static void SwitchClaude(AutomationElement root, int direction)
@@ -754,8 +762,9 @@ internal static class ReasoningSwitch
             Thread.Sleep(50);
         } while (treeTimer.ElapsedMilliseconds < 1500);
         if (lookups > 1) trace.AppendLine("Claude controls lookups=" + lookups + ", waited=" + treeTimer.ElapsedMilliseconds + " ms.");
-        if (buttonModel == null) throw new InvalidOperationException("Opus 5.5 is not selected, or its model control is unavailable.");
+        if (buttonModel == null) throw new InvalidOperationException("Neither Opus 5.5 nor Fable 5.2 is selected, or the model control is unavailable.");
         trace.AppendLine("model=" + Name(buttonModel));
+        claudeModel = ClaudeModelLabel(Name(buttonModel));
         int triggers = 0;
         AutomationElement trigger = null;
         foreach (AutomationElement button in buttons)
@@ -766,7 +775,7 @@ internal static class ReasoningSwitch
         int current = ClaudeEffort(Name(trigger));
         trace.AppendLine("effort trigger=" + Name(trigger) + ", current=" + current);
         int target = NextClaude(current, direction);
-        if (target == current) { FinishWithInputFocus("Opus 5.5: " + Label(target) + " (unchanged)"); return; }
+        if (target == current) { FinishWithInputFocus(claudeModel + ": " + Label(target) + " (unchanged)"); return; }
         if (TrySetClaudeSlider(root, trigger, current, target)) return;
 
         System.Windows.Rect triggerBounds = trigger.Current.BoundingRectangle;
@@ -817,7 +826,7 @@ internal static class ReasoningSwitch
         } while (timer.ElapsedMilliseconds < 2000);
         trace.AppendLine("confirmed=" + confirmed);
         if (confirmed != target) throw new InvalidOperationException("Claude's slider click did not confirm " + Label(target) + ".");
-        FinishWithInputFocus("Opus 5.5: " + Label(target) + " (image verified)");
+        FinishWithInputFocus(claudeModel + ": " + Label(target) + " (image verified)");
     }
     private sealed class ClaudeMenuItem
     {
@@ -1273,7 +1282,7 @@ internal static class ReasoningSwitch
         }
         CloseMenu(root, buttonModel);
         if (before != null) restored = RestoreTextFocus(before);
-        Record("Opus 5.5: " + Label(target) + (target == current ? " (unchanged)" : " (menu verified)") +
+        Record(claudeModel + ": " + Label(target) + (target == current ? " (unchanged)" : " (menu verified)") +
             (before == null ? "" : restored ? "; chat input focused" : "; focus not restored"));
         return true;
     }
@@ -1284,7 +1293,7 @@ internal static class ReasoningSwitch
         trace.AppendLine((top == 5 ? "Code" : "Chat") + " tab; effort on model button=" + current);
         if (current >= 0 && current <= top && NextClaudeMenu(current, direction, top) == current)
         {
-            FinishWithInputFocus("Opus 5.5: " + Label(current) + " (unchanged)");
+            FinishWithInputFocus(claudeModel + ": " + Label(current) + " (unchanged)");
             return;
         }
         if (TrySwitchClaudeChatMenu(root, buttonModel, current, direction, top)) return;
@@ -1369,7 +1378,7 @@ internal static class ReasoningSwitch
             if (haveCursor && !lastPoint.IsEmpty && GetForegroundWindow() == targetWindow && GetCursorPos(out now) && now == lastPoint)
                 SetCursorPos(startCursor.X, startCursor.Y);
         }
-        FinishWithInputFocus("Opus 5.5: " + Label(target) + (target == current ? " (unchanged)" : " (menu verified)"));
+        FinishWithInputFocus(claudeModel + ": " + Label(target) + (target == current ? " (unchanged)" : " (menu verified)"));
     }
     // Sessions page (Group and sort > View all): an Active / Archived tab strip.
     private static bool IsArchivedTab(string name)
@@ -2229,10 +2238,12 @@ internal static class ReasoningSwitch
             if (GptEffort(gpt[level]) != level || NextGpt(level, 1) != (level == 4 ? 4 : level + 1) ||
                 NextGpt(level, -1) != (level == 0 ? 0 : level - 1)) return 1;
         if (GptEffort("GPT-6.1 Sol") != -1) return 1;
-        string[] modelNames = { "모델: Opus 5.5", "Model: Opus 5.5", "Opus 5.5", " Opus 5.5" };
-        string[] sessionNames = { "유휴 가이드 Opus 5.5 업그레이드", "가이드 Opus 5.5 업그레이드에 대한 더 많은 옵션", "Opus 5.5 업그레이드에 대한 더 많은 옵션" };
+        string[] modelNames = { "모델: Opus 5.5", "Model: Opus 5.5", "Opus 5.5", " Opus 5.5", "모델: Fable 5.2", "Model: Fable 5.2 High", "Fable 5.2", "모델: Claude Fable 5.2 최대" };
+        string[] sessionNames = { "유휴 가이드 Opus 5.5 업그레이드", "가이드 Opus 5.5 업그레이드에 대한 더 많은 옵션", "Opus 5.5 업그레이드에 대한 더 많은 옵션", "유휴 Fable 5.2 지원 추가", "Fable 5.2 지원에 대한 더 많은 옵션", "모델: Sonnet 5.5" };
         foreach (string name in modelNames) if (!Regex.IsMatch(name, ClaudeModelPattern, RegexOptions.IgnoreCase)) return 1;
         foreach (string name in sessionNames) if (Regex.IsMatch(name, ClaudeModelPattern, RegexOptions.IgnoreCase)) return 1;
+        if (ClaudeModelLabel("모델: Fable  5.2 높음") != "Fable 5.2" || ClaudeModelLabel("Model: Opus 5.5") != "Opus 5.5" ||
+            ClaudeEffort("모델: Fable 5.2 높음") != 2 || ClaudeEffort("모델: Fable 5.2") != -1) return 1;
         // Another model's control means the tree is ready; frame buttons alone mean it is not.
         foreach (string name in new[] { "모델: Opus 5.5", "모델: Sonnet 5.5", "Model: Haiku 5.5", " model : Opus 5.5" }) if (!IsModelControl(name)) return 1;
         foreach (string name in new[] { "최소화", "최대화", "닫기", "노력: 높음", "Opus 5.5", sessionNames[0] }) if (IsModelControl(name)) return 1;
