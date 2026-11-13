@@ -34,7 +34,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "62-claude-only";
+    private const string BuildName = "64-model-cycle";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModels = @"(?:Opus\s+5\.5|Fable\s+5\.2)";
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?" + ClaudeModels + @"\b|(?:Claude\s+)?" + ClaudeModels + @"\s*$)";
@@ -65,7 +65,7 @@ internal static class ReasoningSwitch
         if (args.Length == 3 && args[0] == "--refresh-ime") return RefreshTextInput(args[1], args[2]);
         if (args.Length == 1 && args[0] == "translate") return SelectionTranslator.Run();
         if (args.Length == 1 && args[0] == "--translate-check") return SelectionTranslator.Check();
-        if (args.Length == 1 && args[0] == "--translate-image-check") return SelectionTranslator.CheckImage();        if (args.Length != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "input" && args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel" && args[0] != "send" && args[0] != "changes")) return 2;
+        if (args.Length == 1 && args[0] == "--translate-image-check") return SelectionTranslator.CheckImage();        if (args.Length != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "input" && args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel" && args[0] != "send" && args[0] != "changes" && args[0] != "model-up" && args[0] != "model-down")) return 2;
         // Screenshot coordinates and cursor coordinates must use physical pixels.
         SetProcessDpiAwarenessContext(new IntPtr(-4));
         int exit = RunLocked(args);
@@ -89,9 +89,10 @@ internal static class ReasoningSwitch
                 if (app != "claude") { RecordSkip(args[0] + " skipped: the app in front is " + app + "."); return 0; }
                 command = args[0];
                 // Clicks and the Right arrow key need the chord released first; a transient release
-                // can occur between chords. S, D, B, R, \ and G only press controls through UI Automation, which
-                // held keys do not change, so they start at once instead of giving up after 3 s.
-                if (args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel" && args[0] != "send" && args[0] != "changes")
+                // can occur between chords. S, D, B, R, \, G and the model switch only press controls through
+                // UI Automation, which held keys do not change, so they start at once instead of giving up after 3 s.
+                bool modelSwitch = args[0] == "model-up" || args[0] == "model-down";
+                if (args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel" && args[0] != "send" && args[0] != "changes" && !modelSwitch)
                 {
                     WaitForInputRelease();
                     trace.AppendLine("Initial key release at " + operationTimer.ElapsedMilliseconds + " ms.");
@@ -107,6 +108,7 @@ internal static class ReasoningSwitch
                 if (args[0] == "changes") { ToggleChangesView(root); return 0; }
                 if (args[0] == "send") { SendWaitingNow(root); return 0; }
                 if (args[0] == "markdown") { ToggleMarkdownView(root); return 0; }
+                if (modelSwitch) { SwitchClaudeModel(root, args[0] == "model-up" ? -1 : 1); return 0; }
                 Stopwatch inputTimer = Stopwatch.StartNew();
                 RememberChatInput(root);
                 trace.AppendLine("Chat input lookup=" + inputTimer.ElapsedMilliseconds + " ms.");
@@ -130,7 +132,8 @@ internal static class ReasoningSwitch
                     args[0] == "tasks" ? "백그라운드 작업 창을 전환하지 못했습니다." :
                     args[0] == "panel" ? "세션 패널을 전환하지 못했습니다." :
                     args[0] == "changes" ? "변경 사항 창을 전환하지 못했습니다." :
-                    args[0] == "send" ? "대기 메시지를 지금 보내지 못했습니다." : "추론 전환을 확인하지 못했습니다.") +
+                    args[0] == "send" ? "대기 메시지를 지금 보내지 못했습니다." :
+                    args[0] == "model-up" || args[0] == "model-down" ? "모델을 바꾸지 못했습니다." : "추론 전환을 확인하지 못했습니다.") +
                     "\nReasoningHotkeys의 last-result.txt를 확인하세요.");
                 return 1;
             }
@@ -633,6 +636,110 @@ internal static class ReasoningSwitch
         trace.AppendLine("confirmed=" + confirmed);
         if (confirmed != target) throw new InvalidOperationException("Claude's slider click did not confirm " + Label(target) + ".");
         FinishWithInputFocus(claudeModel + ": " + Label(target) + " (image verified)");
+    }
+    // The model as the menu lists it ("Fable 5.2", or with a description after it).
+    private static bool IsModelOption(string name, string model)
+    {
+        return Regex.IsMatch(name, @"^\s*(?:Claude\s+)?" + Regex.Escape(model).Replace(@"\ ", @"\s+") + @"(?!\S)", RegexOptions.IgnoreCase);
+    }
+    // The model button's name: "모델: Fable 5.2 높음".
+    private static bool ShowsModel(string button, string model)
+    {
+        return IsModelControl(button) && IsModelOption(Regex.Replace(button, @"^\s*(?:Model|모델)\s*:\s*", "", RegexOptions.IgnoreCase), model);
+    }
+    private static AutomationElement ModelControl(AutomationElement root)
+    {
+        AutomationElement found = null;
+        foreach (AutomationElement button in Elements(root, ControlType.Button))
+        {
+            if (!IsModelControl(Name(button))) continue;
+            if (found != null) throw new InvalidOperationException("More than one model control; no action taken.");
+            found = button;
+        }
+        return found;
+    }
+    // The models the switch goes round, in the model menu's order. Add a model here and it
+    // joins the round; neither end stops.
+    private static readonly string[] CycleModels = { "Opus 5.5", "Fable 5.2" };
+    // Down is the next model and Up the one before, past either end to the other. A model
+    // outside the list (Sonnet, Haiku) enters at the first on Down and the last on Up.
+    private static string NextModel(string button, int direction)
+    {
+        int count = CycleModels.Length, current = -1;
+        for (int index = 0; index < count; index++) if (ShowsModel(button, CycleModels[index])) current = index;
+        if (current < 0) return CycleModels[direction > 0 ? 0 : count - 1];
+        return CycleModels[((current + direction) % count + count) % count];
+    }
+    // Mouse-free: the model button's menu lists the models as radio buttons, and one is chosen
+    // through UI Automation, with no keys.
+    private static void SwitchClaudeModel(AutomationElement root, int direction)
+    {
+        AutomationElement typing = FocusedTextEntry();
+        // Chromium builds its accessibility tree on request; wait for the composer's model control.
+        AutomationElement button = null;
+        Stopwatch timer = Stopwatch.StartNew();
+        do
+        {
+            EnsureForeground();
+            button = ModelControl(root);
+            if (button != null) break;
+            Thread.Sleep(50);
+        } while (timer.ElapsedMilliseconds < 1500);
+        object pattern;
+        if (button == null || !button.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out pattern))
+            throw new InvalidOperationException("Claude's model button was not found.");
+        string model = NextModel(Name(button), direction);
+        trace.AppendLine("model=" + Name(button) + ", target=" + model);
+        if (ShowsModel(Name(button), model)) { Record("Model: " + model + " (unchanged)"); return; }
+        EnsureForeground();
+        // The menu takes the window's focus; the IME is renewed after the run.
+        focusTouched = true;
+        ((ExpandCollapsePattern)pattern).Expand();
+        ClaudeMenuItem option = null;
+        List<ClaudeMenuItem> items = null;
+        timer.Restart();
+        do
+        {
+            EnsureForeground();
+            items = ClaudeMenuItems(root);
+            foreach (ClaudeMenuItem item in items)
+                if (IsModelOption(item.Name, model)) { option = item; break; }
+            // The menu's rows arrive together, so one that has rendered need not be waited on.
+            if (option != null || (items.Count > 0 && timer.ElapsedMilliseconds >= 300)) break;
+            Thread.Sleep(25);
+        } while (timer.ElapsedMilliseconds < 1600);
+        if (option == null || !InvokeMenuItem(option))
+        {
+            trace.AppendLine("menu items=" + MenuNames(items));
+            CloseMenu(root, button);
+            GiveFocusBack(typing);
+            throw new InvalidOperationException(model + " cannot be chosen in the model menu; no change made.");
+        }
+        // The model button's own name is the app's record of the chosen model; the app may
+        // replace the button when the model changes, so it is looked up again.
+        bool confirmed = false;
+        timer.Restart();
+        do
+        {
+            Thread.Sleep(25);
+            EnsureForeground();
+            try { confirmed = ShowsModel(button.Current.Name ?? "", model); } catch { }
+            if (!confirmed)
+                try
+                {
+                    AutomationElement live = ModelControl(root);
+                    if (live != null) { button = live; confirmed = ShowsModel(Name(live), model); }
+                }
+                catch { }
+        } while (!confirmed && timer.ElapsedMilliseconds < 2000);
+        CloseMenu(root, button);
+        trace.AppendLine("model after=" + Name(button) + ", confirmed=" + confirmed);
+        if (!confirmed)
+        {
+            GiveFocusBack(typing);
+            throw new InvalidOperationException("Claude's model button did not confirm " + model + ".");
+        }
+        Record("Model: " + model + " (button verified)" + GiveFocusBack(typing));
     }
     private sealed class ClaudeMenuItem
     {
@@ -1898,6 +2005,21 @@ internal static class ReasoningSwitch
         // Another model's control means the tree is ready; frame buttons alone mean it is not.
         foreach (string name in new[] { "모델: Opus 5.5", "모델: Sonnet 5.5", "Model: Haiku 5.5", " model : Opus 5.5" }) if (!IsModelControl(name)) return 1;
         foreach (string name in new[] { "최소화", "최대화", "닫기", "노력: 높음", "Opus 5.5", sessionNames[0] }) if (IsModelControl(name)) return 1;
+        // Model menu rows and the model button's name, for the model switch.
+        if (!IsModelOption("Fable 5.2", "Fable 5.2") || !IsModelOption("Opus 5.5 복잡한 작업과 일상 업무를 위해", "Opus 5.5") ||
+            !IsModelOption(" Claude Opus  5.5", "Opus 5.5") || IsModelOption("Opus 5.5", "Fable 5.2") || IsModelOption("Opus 5.55", "Opus 5.5") ||
+            IsModelOption("Opus 515", "Opus 5.5") || IsModelOption("더 많은 모델", "Opus 5.5") || IsModelOption("노력 높음", "Fable 5.2") ||
+            !ShowsModel("모델: Fable 5.2 높음", "Fable 5.2") || !ShowsModel("Model: Opus 5.5", "Opus 5.5") ||
+            ShowsModel("모델: Fable 5.2 높음", "Opus 5.5") || ShowsModel("모델: Sonnet 5.5", "Opus 5.5") || ShowsModel("Fable 5.2", "Fable 5.2"))
+            throw new InvalidOperationException("Model switch selftest failed.");
+        // The round has no end: past the last model comes the first, and the other way round.
+        int models = CycleModels.Length;
+        for (int index = 0; index < models; index++)
+            if (NextModel("모델: " + CycleModels[index] + " 높음", 1) != CycleModels[(index + 1) % models] ||
+                NextModel("Model: " + CycleModels[index], -1) != CycleModels[(index + models - 1) % models])
+                throw new InvalidOperationException("Model round selftest failed.");
+        if (models < 2 || NextModel("모델: Sonnet 5.5", 1) != CycleModels[0] || NextModel("모델: Haiku 5.5 중간", -1) != CycleModels[models - 1])
+            throw new InvalidOperationException("Model round entry selftest failed.");
         // Effort submenu options as listed; Ultracode is the Code tab's sixth and top step.
         string[] chatOptions = { "낮음", "중간 추천", "높음", "엑스트라", "최대 3.5× 이상 사용량", "Ultracode" };
         string[] chatOptionsEnglish = { "Low", "Medium Recommended", "High", "Extra", "Max 4x+ usage", "Ultracode" };
