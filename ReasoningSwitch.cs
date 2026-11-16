@@ -34,7 +34,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "64-model-cycle";
+    private const string BuildName = "65-model-dialog";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModels = @"(?:Opus\s+5\.5|Fable\s+5\.2)";
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?" + ClaudeModels + @"\b|(?:Claude\s+)?" + ClaudeModels + @"\s*$)";
@@ -649,14 +649,40 @@ internal static class ReasoningSwitch
     }
     private static AutomationElement ModelControl(AutomationElement root)
     {
+        AutomationElement dialog;
+        return ModelControl(root, out dialog);
+    }
+    // While the app's "모델을 변경하시겠습니까?" dialog is up, the page behind it is hidden from
+    // UI Automation, so the model button is missing and the dialog's own button is there instead.
+    private static AutomationElement ModelControl(AutomationElement root, out AutomationElement dialogConfirm)
+    {
         AutomationElement found = null;
+        dialogConfirm = null;
         foreach (AutomationElement button in Elements(root, ControlType.Button))
         {
-            if (!IsModelControl(Name(button))) continue;
+            string name = Name(button);
+            if (IsModelChangeConfirm(name)) { dialogConfirm = button; continue; }
+            if (!IsModelControl(name)) continue;
             if (found != null) throw new InvalidOperationException("More than one model control; no action taken.");
             found = button;
         }
         return found;
+    }
+    // The confirm button of the dialog the app shows before a switch that makes Claude reread
+    // the whole session ("이 세션은 Opus 5.5 모델에 캐시되어 있습니다").
+    private static bool IsModelChangeConfirm(string name)
+    {
+        return Regex.IsMatch(name, @"^\s*(?:모델\s*변경|(?:Change|Switch)\s+model)\s*$", RegexOptions.IgnoreCase);
+    }
+    // The dialog warns that the switch costs more usage, so the choice stays with the user:
+    // its confirm button gets the focus, Enter switches and Esc cancels. The dialog is not
+    // touched otherwise, and focus is not given back to the chat input behind it.
+    private static void LeaveModelDialog(AutomationElement confirm, string model)
+    {
+        bool focused = false;
+        try { EnsureForeground(); confirm.SetFocus(); focused = true; } catch { }
+        trace.AppendLine("model change dialog shown; confirm focused=" + focused);
+        Record("Model: " + (model ?? "switch") + " waits in Claude's confirm dialog (Enter changes, Esc cancels)");
     }
     // The models the switch goes round, in the model menu's order. Add a model here and it
     // joins the round; neither end stops.
@@ -676,13 +702,15 @@ internal static class ReasoningSwitch
     {
         AutomationElement typing = FocusedTextEntry();
         // Chromium builds its accessibility tree on request; wait for the composer's model control.
-        AutomationElement button = null;
+        AutomationElement button = null, dialogConfirm = null;
         Stopwatch timer = Stopwatch.StartNew();
         do
         {
             EnsureForeground();
-            button = ModelControl(root);
+            button = ModelControl(root, out dialogConfirm);
             if (button != null) break;
+            // The hotkey pressed again while the app's confirm dialog is still up.
+            if (dialogConfirm != null) { focusTouched = true; LeaveModelDialog(dialogConfirm, null); return; }
             Thread.Sleep(50);
         } while (timer.ElapsedMilliseconds < 1500);
         object pattern;
@@ -727,10 +755,12 @@ internal static class ReasoningSwitch
             if (!confirmed)
                 try
                 {
-                    AutomationElement live = ModelControl(root);
+                    AutomationElement live = ModelControl(root, out dialogConfirm);
                     if (live != null) { button = live; confirmed = ShowsModel(Name(live), model); }
                 }
                 catch { }
+            // A switch that makes Claude reread the session waits for the app's confirm dialog.
+            if (!confirmed && dialogConfirm != null) { LeaveModelDialog(dialogConfirm, model); return; }
         } while (!confirmed && timer.ElapsedMilliseconds < 2000);
         CloseMenu(root, button);
         trace.AppendLine("model after=" + Name(button) + ", confirmed=" + confirmed);
@@ -2012,6 +2042,11 @@ internal static class ReasoningSwitch
             !ShowsModel("모델: Fable 5.2 높음", "Fable 5.2") || !ShowsModel("Model: Opus 5.5", "Opus 5.5") ||
             ShowsModel("모델: Fable 5.2 높음", "Opus 5.5") || ShowsModel("모델: Sonnet 5.5", "Opus 5.5") || ShowsModel("Fable 5.2", "Fable 5.2"))
             throw new InvalidOperationException("Model switch selftest failed.");
+        // The app's confirm dialog before a switch that rereads the session.
+        foreach (string name in new[] { "모델 변경", " 모델변경 ", "Change model", "switch model" })
+            if (!IsModelChangeConfirm(name)) throw new InvalidOperationException("Model dialog selftest failed: " + name);
+        foreach (string name in new[] { "취소", "모델 변경하기 설정", "모델: Opus 5.5", "모델을 변경하시겠습니까?", "Change model settings" })
+            if (IsModelChangeConfirm(name)) throw new InvalidOperationException("Model dialog selftest failed: " + name);
         // The round has no end: past the last model comes the first, and the other way round.
         int models = CycleModels.Length;
         for (int index = 0; index < models; index++)
