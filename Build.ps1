@@ -9,7 +9,7 @@ $references=@('Claude-effort-reference.png')
 if($output -ine [IO.Path]::GetFullPath($PSScriptRoot)){
     foreach($name in $references){Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $output $name) -Force}
 }
-$sources=@('ReasoningSwitch.cs','ClaudeImageSlider.cs','StrokesImageSearch.cs','TypeAhead.cs','Translate.cs','CaptureLocator.cs','BacktickClick.cs','Program.cs') | ForEach-Object {Join-Path $PSScriptRoot $_}
+$sources=@('ReasoningSwitch.cs','ClaudeImageSlider.cs','StrokesImageSearch.cs','TypeAhead.cs','Translate.cs','CaptureLocator.cs','FocusHold.cs','BacktickClick.cs','Program.cs') | ForEach-Object {Join-Path $PSScriptRoot $_}
 # The build name is defined once, in ReasoningSwitch.cs.
 $build=[regex]::Match((Get-Content -LiteralPath $sources[0] -Raw),'BuildName\s*=\s*"([^"]+)"').Groups[1].Value
 if(-not $build){throw 'BuildName was not found in ReasoningSwitch.cs.'}
