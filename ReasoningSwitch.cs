@@ -34,7 +34,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "66-capture-focus-hold";
+    private const string BuildName = "68-capture-without-click";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModels = @"(?:Opus\s+5\.5|Fable\s+5\.2)";
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?" + ClaudeModels + @"\b|(?:Claude\s+)?" + ClaudeModels + @"\s*$)";
@@ -1968,7 +1968,6 @@ internal static class ReasoningSwitch
         StrokesImageSearch.SelfTest();
         SelectionTranslator.SelfTest();
         CaptureLocator.SelfTest();
-        BacktickClick.SelfTest();
         ForegroundSelfTest();
         ModifierWaitSelfTest();
         // Protect the final click from search fields, off-window edits and popup overlap.

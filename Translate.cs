@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-// Ctrl+Alt+X in any app: copies the selection, puts the clipboard back, and shows a Korean
+// Ctrl+Alt+T in any app: copies the selection, puts the clipboard back, and shows a Korean
 // translation from Claude Code's CLI (`claude -p`, Haiku) in a popup by the mouse cursor.
 // Pressed on a StrokesPlus capture window (sp.DisplayImage, Shift+F1), it translates the text in
 // that capture instead, sending the image the same way.
@@ -23,6 +23,10 @@ internal static class SelectionTranslator
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
+    private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr data);
+    [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr data);
     [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
     [DllImport("user32.dll")] private static extern uint GetClipboardSequenceNumber();
     [DllImport("user32.dll")] private static extern uint MapVirtualKey(uint code, uint type);
@@ -69,8 +73,13 @@ internal static class SelectionTranslator
     {
         IntPtr source = GetForegroundWindow();
         if (IsCaptureWindow(WindowText(source))) return RunCapture(source);
+        // Shift+F1 hands the focus back to the app it captured from, so a capture just taken is
+        // shown but not in front. With nothing selected there, it is what the user wants translated.
+        IntPtr capture = FindCaptureWindow();
         // System DPI awareness: WinForms scales the popup and the cursor shares its coordinates.
-        SetProcessDpiAwarenessContext(new IntPtr(-2));
+        // A capture may be read instead, which needs RunCapture's per-monitor pixels; the
+        // awareness can be set only once, and the popup works under either.
+        SetProcessDpiAwarenessContext(new IntPtr(capture != IntPtr.Zero ? -4 : -2));
         Application.EnableVisualStyles();
         string text = null, problem = null;
         try
@@ -86,6 +95,15 @@ internal static class SelectionTranslator
             }
         }
         catch (Exception error) { problem = "선택 영역을 복사하지 못했습니다.\n" + error.Message; }
+        if (text != null && text.Length == 0 && capture != IntPtr.Zero && IsWindow(capture))
+        {
+            Record("No selection; translating the capture window on screen.");
+            // Nothing may cover the capture while the screen is read: an older popup, or the source app.
+            ClosePreviousPopups();
+            SetForegroundWindow(capture);
+            Thread.Sleep(100);
+            return RunCapture(capture);
+        }
         if (problem != null) Record("Not translated: " + problem.Replace("\n", " "));
         ClosePreviousPopups();
         using (TranslationPopup popup = new TranslationPopup(source, problem == null ? text : null, null, problem))
@@ -96,6 +114,19 @@ internal static class SelectionTranslator
     internal static bool IsCaptureWindow(string title)
     {
         return title != null && title.StartsWith(CaptureWindowTitle, StringComparison.Ordinal);
+    }
+
+    // The topmost visible capture window, the newest when several are open; Zero when none is.
+    private static IntPtr FindCaptureWindow()
+    {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows(delegate(IntPtr window, IntPtr unused)
+        {
+            if (!IsWindowVisible(window) || IsIconic(window) || !IsCaptureWindow(WindowText(window))) return true;
+            found = window;
+            return false;
+        }, IntPtr.Zero);
+        return found;
     }
 
     private static string WindowText(IntPtr window)
