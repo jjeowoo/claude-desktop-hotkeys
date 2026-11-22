@@ -14,7 +14,7 @@ $sources=@('ReasoningSwitch.cs','ClaudeImageSlider.cs','StrokesImageSearch.cs','
 $build=[regex]::Match((Get-Content -LiteralPath $sources[0] -Raw),'BuildName\s*=\s*"([^"]+)"').Groups[1].Value
 if(-not $build){throw 'BuildName was not found in ReasoningSwitch.cs.'}
 $next=Join-Path $output 'ReasoningSwitch.build.exe'
-& $compiler /nologo /target:winexe /platform:x64 /optimize+ ('/out:'+$next) ('/reference:'+(Join-Path $wpf 'UIAutomationClient.dll')) ('/reference:'+(Join-Path $wpf 'UIAutomationTypes.dll')) ('/reference:'+(Join-Path $wpf 'WindowsBase.dll')) /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll $sources
+& $compiler /nologo /target:winexe /platform:x64 /optimize+ ('/out:'+$next) ('/reference:'+(Join-Path $wpf 'UIAutomationClient.dll')) ('/reference:'+(Join-Path $wpf 'UIAutomationTypes.dll')) ('/reference:'+(Join-Path $wpf 'WindowsBase.dll')) /reference:System.Windows.Forms.dll /reference:System.Drawing.dll $sources
 if($LASTEXITCODE -ne 0){throw 'Compilation failed; the existing helper was not replaced.'}
 $test=Start-Process -FilePath $next -ArgumentList '--selftest' -WindowStyle Hidden -PassThru -Wait
 if($test.ExitCode -ne 0){throw 'Self-test failed; see selftest-error.txt. The existing helper was not replaced.'}

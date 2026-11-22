@@ -10,8 +10,7 @@ using System.Windows.Automation;
 using System.Windows.Forms;
 
 // No network, clipboard access, chat submission, or background hotkey hook, except that
-// "translate" (Translate.cs) uses the clipboard and runs Claude Code's CLI on the selection, or on
-// a StrokesPlus capture window's image when one is in front.
+// "translate" (Translate.cs) uses the clipboard and runs Claude Code's CLI on the selection.
 // StrokesPlus launches this only when the user presses the configured hotkey.
 internal static class ReasoningSwitch
 {
@@ -34,7 +33,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "68-capture-without-click";
+    private const string BuildName = "69-no-capture-translation";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModels = @"(?:Opus\s+5\.5|Fable\s+5\.2)";
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?" + ClaudeModels + @"\b|(?:Claude\s+)?" + ClaudeModels + @"\s*$)";
@@ -65,7 +64,7 @@ internal static class ReasoningSwitch
         if (args.Length == 3 && args[0] == "--refresh-ime") return RefreshTextInput(args[1], args[2]);
         if (args.Length == 1 && args[0] == "translate") return SelectionTranslator.Run();
         if (args.Length == 1 && args[0] == "--translate-check") return SelectionTranslator.Check();
-        if (args.Length == 1 && args[0] == "--translate-image-check") return SelectionTranslator.CheckImage();        if (args.Length != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "input" && args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel" && args[0] != "send" && args[0] != "changes" && args[0] != "model-up" && args[0] != "model-down")) return 2;
+        if (args.Length != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "input" && args[0] != "status" && args[0] != "markdown" && args[0] != "tasks" && args[0] != "panel" && args[0] != "send" && args[0] != "changes" && args[0] != "model-up" && args[0] != "model-down")) return 2;
         // Screenshot coordinates and cursor coordinates must use physical pixels.
         SetProcessDpiAwarenessContext(new IntPtr(-4));
         int exit = RunLocked(args);

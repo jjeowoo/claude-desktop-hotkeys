@@ -1,6 +1,6 @@
 # claude-desktop-hotkeys
 
-StrokesPlus.net 단축키로 Claude Desktop을 조작하고, 어느 앱에서나 선택한 영어나 화면 캡처 속 글자를 한국어로 번역합니다.
+StrokesPlus.net 단축키로 Claude Desktop을 조작하고, 어느 앱에서나 선택한 영어를 한국어로 번역합니다.
 
 ## 단축키
 
@@ -51,17 +51,6 @@ StrokesPlus.net 단축키로 Claude Desktop을 조작하고, 어느 앱에서나
 - 번역은 Claude Code CLI를 비대화형으로 실행해 Haiku 모델로 합니다: `claude -p --model haiku --tools "" --no-session-persistence --strict-mcp-config`. 선택한 텍스트는 명령줄이 아니라 표준 입력(UTF-8)으로 넘기고, 도구·MCP 서버·세션 기록 없이 임시 폴더에서 실행합니다. 지시문은 `다음 텍스트를 자연스러운 한국어로 번역해. 설명 없이 번역문만 출력해:`입니다.
 - 한 번에 8,000자까지 번역하고, 90초 안에 응답이 없으면 멈춥니다.
 
-### 캡처 번역
-
-화면 캡처 단축키(예: `Shift+F1`)가 `sp.DisplayImage(img, true)`로 띄운 StrokesPlus 캡처 창(`StrokesPlus.net Display Image Window`)이 앞에 있을 때 `Ctrl+Alt+T`를 누르면, 선택 영역 대신 그 창에 보이는 이미지 속 글자를 번역합니다. 캡처한 뒤에는 포커스가 원래 앱으로 돌아가지만, 그 앱에 선택한 텍스트가 없으면 화면에 떠 있는 캡처 창(여럿이면 맨 위의 것)을 앞으로 가져와 번역하므로 캡처 직후 바로 눌러도 됩니다. 원래 앱에 선택한 텍스트가 있으면 그 텍스트를 번역합니다. 캡처 창 자체는 StrokesPlus 그대로라 시작 메뉴 등과의 겹침, 우클릭 저장, 휠 확대·축소가 예전과 같습니다.
-
-- `sp.DisplayImage`는 위치를 주지 않으면 창 가운데를 마우스에 맞춰 띄우므로, `Shift+F1` 스크립트는 `ReasoningSwitch.exe locate-capture X,Y`(X,Y는 캡처가 끝난 순간의 마우스 위치, 곧 캡처 영역의 한 모서리)로 캡처한 자리를 물어 그 답(창 가운데 좌표, 표준 출력 `X,Y`)을 `sp.DisplayImage(img, true, 위치)`에 넘깁니다. 도우미는 그 점을 모서리로 하는 네 방향 중 화면 픽셀이 클립보드 이미지와 같은 곳을 고르고(캡처 도구의 어두운 화면이 남아 있으면 0.4초까지 다시 봄), 못 찾으면 그 점을 오른쪽 아래 모서리로 하는 자리를 씁니다. 캡처는 원래 자리에서 오른쪽 아래로 1픽셀 비켜 겹쳐 떠서 원래 화면과 구분됩니다. 답을 못 받으면 예전처럼 마우스 위치에 뜹니다.
-- 핫키의 `Shift`가 Claude 같은 Chromium 앱에 들어가면 마지막으로 클릭한 곳에 포커스 테두리가 생기고, 캡처 도구가 그 화면을 그대로 얼려 테두리까지 찍힙니다. 그래서 앞 창의 클래스가 `Chrome_WidgetWin`으로 시작하면 `Shift+F1` 스크립트는 캡처 도구를 열기 전에 `ReasoningSwitch.exe hold-focus`를 띄웁니다. 도우미는 보이지 않는 창으로 포커스를 가져와(비활성 창은 테두리를 그리지 않음) 표준 출력에 `held` 또는 `refused` 한 줄을 쓰고, 캡처 도구가 앞에 서면 끝납니다. 캡처가 끝나면 원래 앱이 다시 앞에 옵니다. 캡처 도구가 10초 안에 오지 않으면 포커스를 원래 창에 돌려주고 끝납니다. 스크립트는 `held`를 받으면 0.05초 기다린 뒤 캡처 도구를 엽니다. 다른 앱은 비활성 모양(회색 선택 등)으로 찍히지 않도록 건드리지 않습니다.
-- 이미지는 캡처 창의 안쪽(테두리 2픽셀 제외)을 화면에서 그대로 읽습니다. 확대·축소한 상태면 보이는 크기대로 읽습니다. StrokesPlus가 관리자 권한으로 실행돼도 화면에서 읽으므로 됩니다.
-- 번역 결과는 선택 영역 번역과 같은 팝업에 나옵니다. 캡처 창을 닫아도 번역 팝업은 남습니다.
-- 이미지는 긴 변이 1,568픽셀을 넘으면 줄여서(Claude가 어차피 그 크기로 줄입니다) PNG로 표준 입력에 넘깁니다. 일반 입력은 글자만 받으므로 `--input-format stream-json --output-format stream-json --verbose`를 더해 이미지가 든 메시지 하나를 보냅니다. 지시문은 `이미지 속 글자를 자연스러운 한국어로 번역해. 설명 없이 번역문만 출력해. 글자가 없으면 "이미지에서 글자를 찾지 못했습니다."라고만 출력해.`입니다.
-- 이미지는 파일로 저장하지 않습니다.
-
 ### Claude Code CLI 준비
 
 `claude`를 PATH, `%USERPROFILE%\.local\bin`, `%APPDATA%\npm` 순서로 찾고, 없으면 Claude 데스크톱 앱에 들어 있는 CLI(`%APPDATA%\Claude\claude-code\<버전>\…\claude.exe`, 또는 앱 패키지 폴더 `%LOCALAPPDATA%\Packages\Claude_…\LocalCache\Roaming\Claude\claude-code\<버전>\…\claude.exe`) 중 가장 최근 것을 씁니다. 앱 밖에서는 앞의 경로가 앱 업데이트 뒤 비어 있을 수 있어 패키지 폴더도 찾습니다. 어느 것이든 **로그인된 상태**여야 합니다. 데스크톱 앱 안의 CLI는 앱 밖에서 실행하면 로그인되어 있지 않을 수 있습니다.
@@ -79,16 +68,21 @@ CLI가 없으면 PowerShell에서 설치한 뒤 `claude`를 한 번 실행해 `/
 irm https://claude.ai/install.ps1 | iex
 ```
 
-설정이 됐는지는 팝업 없이 다음 명령으로 확인합니다. 예문 한 줄을 번역해 결과를 `last-result-translate.txt`에 씁니다. `--translate-image-check`는 같은 예문을 이미지로 그려 캡처 번역 경로로 번역합니다.
+설정이 됐는지는 팝업 없이 다음 명령으로 확인합니다. 예문 한 줄을 번역해 결과를 `last-result-translate.txt`에 씁니다.
 
 ```powershell
 .\ReasoningSwitch.exe --translate-check
 Get-Content .\last-result-translate.txt
-.\ReasoningSwitch.exe --translate-image-check
-Get-Content .\last-result-translate.txt
 ```
 
 CLI를 찾지 못하거나, 로그인이 안 됐거나 만료됐거나, 실패하면 팝업에 원인과 할 일을 표시합니다.
+
+## 화면 캡처 도우미
+
+`Shift+F1` 같은 화면 캡처 스크립트는 이 저장소가 설치하지 않고 StrokesPlus 설정에 따로 둡니다. 그 스크립트가 `sp.DisplayImage(img, true)`로 띄우는 StrokesPlus 캡처 창(`StrokesPlus.net Display Image Window`)을 위해 도우미가 두 명령을 제공합니다. 캡처는 이 PC 안에서만 다루며 번역하거나 어디로 보내지 않습니다.
+
+- `sp.DisplayImage`는 위치를 주지 않으면 창 가운데를 마우스에 맞춰 띄우므로, `Shift+F1` 스크립트는 `ReasoningSwitch.exe locate-capture X,Y`(X,Y는 캡처가 끝난 순간의 마우스 위치, 곧 캡처 영역의 한 모서리)로 캡처한 자리를 물어 그 답(창 가운데 좌표, 표준 출력 `X,Y`)을 `sp.DisplayImage(img, true, 위치)`에 넘깁니다. 도우미는 그 점을 모서리로 하는 네 방향 중 화면 픽셀이 클립보드 이미지와 같은 곳을 고르고(캡처 도구의 어두운 화면이 남아 있으면 0.4초까지 다시 봄), 못 찾으면 그 점을 오른쪽 아래 모서리로 하는 자리를 씁니다. 캡처는 원래 자리에서 오른쪽 아래로 1픽셀 비켜 겹쳐 떠서 원래 화면과 구분됩니다. 답을 못 받으면 예전처럼 마우스 위치에 뜹니다.
+- 핫키의 `Shift`가 Claude 같은 Chromium 앱에 들어가면 마지막으로 클릭한 곳에 포커스 테두리가 생기고, 캡처 도구가 그 화면을 그대로 얼려 테두리까지 찍힙니다. 그래서 앞 창의 클래스가 `Chrome_WidgetWin`으로 시작하면 `Shift+F1` 스크립트는 캡처 도구를 열기 전에 `ReasoningSwitch.exe hold-focus`를 띄웁니다. 도우미는 보이지 않는 창으로 포커스를 가져와(비활성 창은 테두리를 그리지 않음) 표준 출력에 `held` 또는 `refused` 한 줄을 쓰고, 캡처 도구가 앞에 서면 끝납니다. 캡처가 끝나면 원래 앱이 다시 앞에 옵니다. 캡처 도구가 10초 안에 오지 않으면 포커스를 원래 창에 돌려주고 끝납니다. 스크립트는 `held`를 받으면 0.05초 기다린 뒤 캡처 도구를 엽니다. 다른 앱은 비활성 모양(회색 선택 등)으로 찍히지 않도록 건드리지 않습니다.
 
 ## 설치
 
@@ -176,7 +170,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1
 
 빌드 이름은 `ReasoningSwitch.cs`의 `BuildName` 한 곳에서 정의하고, `Build.ps1`은 그 값을 읽어 결과에 표시합니다.
 
-현재 버전은 **62-claude-only**입니다. 자체 검사 항목:
+현재 버전은 **69-no-capture-translation**입니다. 자체 검사 항목:
 
 - 단계 이름, 양방향 이동과 경계, 노력 하위 메뉴 항목 이름과 Code 탭 여섯 단계·Chat 탭 다섯 단계의 경계
 - 활성 창이 잠깐 바뀐 경우의 대기와 돌아오지 않는 경우의 중단
@@ -185,9 +179,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1
 - 실제 참조 이미지의 손잡이
 - 입력란 판별, 팝업을 피한 입력란 클릭 위치
 - 세션 화면 `보관됨` 탭과 Markdown 보기 버튼의 이름
-- 번역: 팝업 위치(화면 가장자리에서 반대쪽으로), 로그인 안 됨·로그인 만료·기타 실패 메시지, `claude.exe`와 `claude.cmd` 실행 명령줄과 UTF-8 출력, 줄바꿈 정리와 터미널 판별
-- 캡처 번역: 이미지 축소 크기, stream-json 요청(이미지·지시문)과 결과·오류 읽기, StrokesPlus 캡처 창 제목 판별
-- 최적화: 일부 글자만 일치하는 가짜 후보의 거부와 실제 팝업 복구, 창 밖으로 벗어나는 검색 영역, 잘라낸 이미지의 여섯 단계, 다른 모니터 좌표 변환
+- 번역: 팝업 위치(화면 가장자리에서 반대쪽으로), 로그인 안 됨·로그인 만료·기타 실패 메시지, `claude.exe`와 `claude.cmd` 실행 명령줄과 UTF-8 출력, 줄바꿈 정리와 터미널 판별- 최적화: 일부 글자만 일치하는 가짜 후보의 거부와 실제 팝업 복구, 창 밖으로 벗어나는 검색 영역, 잘라낸 이미지의 여섯 단계, 다른 모니터 좌표 변환
 
 ## 성능
 
@@ -213,7 +205,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1
 
 이름에 `-claude`가 붙은 파일은 Claude에서 실행한 최근 기록입니다.
 
-번역 `T`와 캡처 번역을 빼면 실행 파일은 네트워크나 클립보드에 접근하지 않으며 대화를 전송하지 않습니다. 번역 `T`는 선택 영역을 읽으려고 클립보드를 잠깐 쓰고, 선택한 텍스트를 Claude Code CLI를 통해 Claude로 보냅니다. 캡처 번역은 StrokesPlus 캡처 창이 앞에 있을 때 `Ctrl+Alt+T`를 누르면 그 창에 보이는 이미지를 화면에서 읽어 같은 방법으로 Claude에 보냅니다. 입력란의 본문을 읽거나 로그로 저장하지 않습니다. 화면 캡처는 이미지 검색을 위해 메모리에서만 사용합니다. 개인 설정 백업과 진단·위치 파일은 Git에서 제외됩니다.
+번역 `T`를 빼면 실행 파일은 네트워크에 접근하지 않으며 대화를 전송하지 않습니다. 번역 `T`는 선택 영역을 읽으려고 클립보드를 잠깐 쓰고, 선택한 텍스트를 Claude Code CLI를 통해 Claude로 보냅니다. 화면 캡처 도우미 `locate-capture`는 캡처 자리를 찾으려고 클립보드의 캡처 이미지를 읽기만 하고 어디로도 보내지 않습니다. 입력란의 본문을 읽거나 로그로 저장하지 않습니다. 화면 캡처는 이미지 검색을 위해 메모리에서만 사용합니다. 개인 설정 백업과 진단·위치 파일은 Git에서 제외됩니다.
 
 ## 라이선스
 
