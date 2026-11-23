@@ -58,7 +58,7 @@ StrokesPlus.net 단축키로 Claude Desktop을 조작하고, 어느 앱에서나
 CLI의 `/login` 로그인은 다른 프로그램이 먼저 갱신하면 풀릴 수 있습니다. 로그인이 자꾸 풀리면 1년짜리 토큰을 쓰세요. 구독 사용량에서 차감되는 것은 같고, 추가 요금은 없습니다.
 
 1. 터미널에서 `claude setup-token`을 실행합니다. 브라우저에서 승인하면 토큰이 출력됩니다.
-2. 출력된 토큰을 `%APPDATA%\claude-desktop-hotkeys\claude-token.txt`에 저장합니다. 이 파일이 있으면 번역할 때 그 토큰을 `CLAUDE_CODE_OAUTH_TOKEN`으로 넘기고, CLI 자체의 로그인은 쓰지 않습니다.
+2. 출력된 토큰을 `%APPDATA%\claude-desktop-hotkeys\claude-token.txt`에 저장합니다. 이 파일이 있으면 번역할 때 그 토큰을 `CLAUDE_CODE_OAUTH_TOKEN`으로 넘기고, CLI 자체의 로그인은 쓰지 않습니다. Claude 앱 안(Claude Code 세션 등)에서 이 파일을 저장하면 실제로는 앱 패키지 폴더 `%LOCALAPPDATA%\Packages\Claude_…\LocalCache\Roaming\claude-desktop-hotkeys\claude-token.txt`에 저장되므로, 그곳도 찾습니다. 두 곳에 다 있으면 `%APPDATA%` 쪽을 씁니다.
 
 토큰은 1년 동안 계정을 쓸 수 있는 열쇠이므로 다른 곳에 올리지 마세요. 만료되거나 취소되면 팝업이 같은 방법으로 다시 발급하라고 안내합니다.
 

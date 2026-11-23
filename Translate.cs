@@ -247,12 +247,21 @@ internal static class SelectionTranslator
     internal static List<string> BundledFolders(string appData, string localAppData)
     {
         List<string> folders = new List<string> { Path.Combine(appData, "Claude\\claude-code") };
+        foreach (string roaming in PackageRoamingFolders(localAppData))
+            folders.Add(Path.Combine(roaming, "Claude\\claude-code"));
+        return folders;
+    }
+
+    // Where the Claude app's own writes to %APPDATA% really land.
+    internal static List<string> PackageRoamingFolders(string localAppData)
+    {
+        List<string> folders = new List<string>();
         try
         {
             string packages = Path.Combine(localAppData, "Packages");
             if (Directory.Exists(packages))
                 foreach (string package in Directory.GetDirectories(packages, "Claude_*"))
-                    folders.Add(Path.Combine(package, "LocalCache\\Roaming\\Claude\\claude-code"));
+                    folders.Add(Path.Combine(package, "LocalCache\\Roaming"));
         }
         catch { }
         return folders;
@@ -260,9 +269,31 @@ internal static class SelectionTranslator
 
     // A long-lived token from `claude setup-token`, kept apart from the CLI's own login: that login's
     // refresh token rotates, and another process refreshing it first wipes the CLI's copy.
+    private const string TokenName = "claude-desktop-hotkeys\\claude-token.txt";
+
     internal static string TokenPath()
     {
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "claude-desktop-hotkeys\\claude-token.txt");
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), TokenName);
+    }
+
+    // A token saved from inside the Claude app (a Claude Code session, say) lands in the app's
+    // package folder, which this helper, started outside the app, does not see as %APPDATA%.
+    internal static List<string> TokenPaths(string appData, string localAppData)
+    {
+        List<string> paths = new List<string> { Path.Combine(appData, TokenName) };
+        foreach (string roaming in PackageRoamingFolders(localAppData))
+            paths.Add(Path.Combine(roaming, TokenName));
+        return paths;
+    }
+
+    internal static string FindToken(List<string> paths)
+    {
+        foreach (string path in paths)
+        {
+            string token = ReadToken(path);
+            if (token != null) return token;
+        }
+        return null;
     }
 
     internal static string ReadToken(string path)
@@ -307,7 +338,8 @@ internal static class SelectionTranslator
             result.Text = "Claude Code CLI(claude)를 찾을 수 없습니다.\n설치한 뒤 터미널에서 claude를 한 번 실행해 로그인하세요.\n설치: PowerShell에서 irm https://claude.ai/install.ps1 | iex";
             return result;
         }
-        string tokenPath = TokenPath(), token = ReadToken(tokenPath);
+        string tokenPath = TokenPath(), token = FindToken(TokenPaths(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)));
         using (Process process = new Process { StartInfo = StartInfo(result.Claude, token) })
         {
             try { process.Start(); }
@@ -418,8 +450,25 @@ internal static class SelectionTranslator
                 bundled[1] != Path.Combine(fakeLocal, "Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Roaming\\Claude\\claude-code") ||
                 BundledFolders("C:\\Roaming", fakeLocal + ".missing").Count != 1)
                 throw new InvalidOperationException("Translation CLI folder selftest failed.");
+            string fakeRoaming = fakeLocal + "-roaming";
+            List<string> tokens = TokenPaths(fakeRoaming, fakeLocal);
+            string packaged = Path.Combine(fakeLocal, "Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Roaming\\claude-desktop-hotkeys\\claude-token.txt");
+            if (tokens.Count != 2 || tokens[0] != Path.Combine(fakeRoaming, "claude-desktop-hotkeys\\claude-token.txt") || tokens[1] != packaged ||
+                FindToken(tokens) != null)
+                throw new InvalidOperationException("Translation token location selftest failed.");
+            Directory.CreateDirectory(Path.GetDirectoryName(packaged));
+            File.WriteAllText(packaged, "sk-packaged");
+            string fromPackage = FindToken(tokens);
+            Directory.CreateDirectory(Path.GetDirectoryName(tokens[0]));
+            File.WriteAllText(tokens[0], "sk-real");
+            if (fromPackage != "sk-packaged" || FindToken(tokens) != "sk-real")
+                throw new InvalidOperationException("Translation token fallback selftest failed.");
         }
-        finally { try { Directory.Delete(fakeLocal, true); } catch { } }
+        finally
+        {
+            try { Directory.Delete(fakeLocal, true); } catch { }
+            try { Directory.Delete(fakeLocal + "-roaming", true); } catch { }
+        }
         string tokenFile = Path.Combine(Path.GetTempPath(), "claude-desktop-hotkeys-selftest-token.txt");
         try
         {
