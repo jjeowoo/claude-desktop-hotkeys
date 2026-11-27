@@ -33,7 +33,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "71-activity-panel";
+    private const string BuildName = "72-side-panel";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModels = @"(?:Opus\s+5\.5|Fable\s+5\.2)";
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?" + ClaudeModels + @"\b|(?:Claude\s+)?" + ClaudeModels + @"\s*$)";
@@ -899,104 +899,212 @@ internal static class ReasoningSwitch
             throw new InvalidOperationException(what + " is outside the active window; no click sent.");
         return new System.Drawing.Point((int)Math.Round(center.X), (int)Math.Round(center.Y));
     }
-    // Mouse-free: the header's View options menu has a Background tasks check box that
-    // shows or hides the tasks pane; it is toggled through UI Automation, with no keys.
+    // Mouse-free: since 2026-11-27 the background tasks, changes and file views are tabs of the
+    // side panel that the header's Side panel button opens; the View options menu and the
+    // Changes and Files header buttons are gone. A view already in front is hidden by closing
+    // the panel; otherwise its tab is selected, or opened from the panel's own list (an empty
+    // panel) or its New tab menu. Everything goes through UI Automation, with no keys.
     private static void ToggleTasksPane(AutomationElement root)
     {
+        if (!ToggleSideTab(root, IsTasksLabel, "Background tasks", "Tasks: pane"))
+            DeferNotice("이 세션에는 백그라운드 작업이 없습니다.");
+    }
+    // The tab label can carry the running task count, e.g. "백그라운드 작업 4".
+    private static bool IsTasksLabel(string name)
+    {
+        return Regex.IsMatch(name, @"^\s*(백그라운드\s*작업|background\s*tasks?)(\s*\d+)?\s*$", RegexOptions.IgnoreCase);
+    }
+    private static bool IsSidePanelToggle(string name)
+    {
+        return Regex.IsMatch(name, @"^\s*(사이드\s*패널|side\s*panel)\s*$", RegexOptions.IgnoreCase);
+    }
+    private static bool IsFilesLabel(string name)
+    {
+        return Regex.IsMatch(name, @"^\s*(파일|files?)\s*$", RegexOptions.IgnoreCase);
+    }
+    // Returns false, with nothing changed, when Claude does not offer the view (a session
+    // without background tasks).
+    private static bool ToggleSideTab(AutomationElement root, Func<string, bool> matches, string label, string record)
+    {
         AutomationElement typing = FocusedTextEntry();
-        // An open pane is closed with its own Close button; the menu is only needed to open it.
-        AutomationElement close = TasksPaneClose(root);
-        if (close != null) { CloseTasksPane(root, close, typing); return; }
-        AutomationElement options = null;
-        foreach (AutomationElement button in Elements(root, ControlType.Button))
-            if (Regex.IsMatch(Name(button), @"^\s*(보기\s*옵션|view\s*options)\s*$", RegexOptions.IgnoreCase)) { options = button; break; }
-        object pattern;
-        if (options == null || !options.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out pattern))
-            throw new InvalidOperationException("The View options button was not found; open a session in the Code tab.");
-        ExpandCollapsePattern menu = (ExpandCollapsePattern)pattern;
+        // Chromium builds its accessibility tree on request; FindButton looks again for a while.
+        if (FindButton(root, IsSidePanelToggle, "Side panel", 1500) == null || SidePanelOpen(root) == null)
+            throw new InvalidOperationException("The Side panel button was not found; open a session in the Code tab.");
+        bool wasOpen = SidePanelOpen(root) == true;
+        AutomationElement tab = wasOpen ? SideTab(root, matches) : null;
+        trace.AppendLine("Side panel open=" + wasOpen + "; " + label + " tab=" + (tab == null ? "none" : TabSelected(tab) ? "front" : "behind"));
         EnsureForeground();
-        // The menu takes the window's focus; the IME is renewed after the run.
+        // The panel and its menus take the window's focus; the IME is renewed after the run.
         focusTouched = true;
-        menu.Expand();
-        AutomationElement box = null;
+        if (tab != null && TabSelected(tab))
+        {
+            SetSidePanel(root, false);
+            Record(record + " hidden (side panel closed)" + GiveFocusBack(typing));
+            return true;
+        }
+        if (!wasOpen) SetSidePanel(root, true);
+        // A tab the panel already holds shows up with the panel's tab bar.
+        Stopwatch timer = Stopwatch.StartNew();
+        do
+        {
+            tab = SideTab(root, matches);
+            if (tab != null || SideLauncher(root) != null) break;
+            Thread.Sleep(25);
+        } while (timer.ElapsedMilliseconds < 800);
+        if (tab == null && !OpenSideTab(root, matches, label))
+        {
+            if (!wasOpen) SetSidePanel(root, false);
+            Record(record + ": " + label + " is not offered in this session" + GiveFocusBack(typing));
+            return false;
+        }
+        timer.Restart();
+        bool front = false;
+        do
+        {
+            EnsureForeground();
+            if (tab != null && !TabSelected(tab))
+            {
+                object select;
+                try { if (tab.TryGetCurrentPattern(SelectionItemPattern.Pattern, out select)) ((SelectionItemPattern)select).Select(); }
+                catch (ElementNotAvailableException) { }
+            }
+            Thread.Sleep(25);
+            tab = SideTab(root, matches);
+            front = tab != null && TabSelected(tab);
+        } while (!front && timer.ElapsedMilliseconds < 1500);
+        if (!front) throw new InvalidOperationException("The " + label + " tab did not come to the front of the side panel.");
+        Record(record + " shown (side panel tab verified)" + GiveFocusBack(typing));
+        return true;
+    }
+    // Null when the Side panel button cannot be read.
+    private static bool? SidePanelOpen(AutomationElement root)
+    {
+        AutomationElement panel = FindButton(root, IsSidePanelToggle, "Side panel", 0);
+        object pattern;
+        try
+        {
+            if (panel == null || !panel.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out pattern)) return null;
+            return ((ExpandCollapsePattern)pattern).Current.ExpandCollapseState == ExpandCollapseState.Expanded;
+        }
+        catch (ElementNotAvailableException) { return null; }
+    }
+    // The button is drawn again when the panel opens, so each step looks it up afresh.
+    private static void SetSidePanel(AutomationElement root, bool open)
+    {
+        Stopwatch timer = Stopwatch.StartNew();
+        bool asked = false;
+        do
+        {
+            bool? state = SidePanelOpen(root);
+            if (state == open) { trace.AppendLine("Side panel " + (open ? "opened" : "closed") + " at " + timer.ElapsedMilliseconds + " ms."); return; }
+            if (!asked && state != null)
+            {
+                AutomationElement panel = FindButton(root, IsSidePanelToggle, "Side panel", 0);
+                object pattern;
+                try
+                {
+                    if (panel != null && panel.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out pattern))
+                    {
+                        EnsureForeground();
+                        if (open) ((ExpandCollapsePattern)pattern).Expand(); else ((ExpandCollapsePattern)pattern).Collapse();
+                        asked = true;
+                    }
+                }
+                catch (ElementNotAvailableException) { }
+            }
+            Thread.Sleep(25);
+        } while (timer.ElapsedMilliseconds < 1500);
+        throw new InvalidOperationException("The side panel did not " + (open ? "open." : "close."));
+    }
+    // Only the side panel's own tab bar counts; the sessions page has tabs of its own.
+    private static AutomationElement SideTab(AutomationElement root, Func<string, bool> matches)
+    {
+        foreach (AutomationElement bar in Elements(root, ControlType.Tab))
+            if (IsSideTabBar(Name(bar)))
+                foreach (AutomationElement tab in Elements(bar, ControlType.TabItem))
+                    if (matches(Name(tab))) return tab;
+        return null;
+    }
+    private static bool IsSideTabBar(string name)
+    {
+        return Regex.IsMatch(name, @"^\s*(사이드\s*패널\s*탭|side\s*panel\s*tabs?)\s*$", RegexOptions.IgnoreCase);
+    }
+    private static bool TabSelected(AutomationElement tab)
+    {
+        object pattern;
+        try { return tab.TryGetCurrentPattern(SelectionItemPattern.Pattern, out pattern) && ((SelectionItemPattern)pattern).Current.IsSelected; }
+        catch { return false; }
+    }
+    // An empty side panel lists the views it can open.
+    private static AutomationElement SideLauncher(AutomationElement root)
+    {
+        foreach (AutomationElement list in Elements(root, ControlType.List))
+            if (IsSideLauncher(Name(list))) return list;
+        return null;
+    }
+    private static bool IsSideLauncher(string name)
+    {
+        return Regex.IsMatch(name, @"^\s*(사이드\s*패널에서\s*열기|open\s+in\s+(the\s+)?side\s*panel)\s*$", RegexOptions.IgnoreCase);
+    }
+    private static bool OpenSideTab(AutomationElement root, Func<string, bool> matches, string label)
+    {
+        AutomationElement launcher = SideLauncher(root);
+        if (launcher != null)
+        {
+            foreach (AutomationElement button in Elements(launcher, ControlType.Button))
+            {
+                object invoke;
+                if (matches(Name(button)) && button.TryGetCurrentPattern(InvokePattern.Pattern, out invoke))
+                {
+                    EnsureForeground();
+                    ((InvokePattern)invoke).Invoke();
+                    trace.AppendLine(label + " opened from the side panel list.");
+                    return true;
+                }
+            }
+            trace.AppendLine("Side panel list has no " + label + ".");
+            return false;
+        }
+        AutomationElement newTab = FindButton(root, IsNewTabButton, "New tab", 0);
+        object expand;
+        if (newTab == null || !newTab.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out expand))
+            throw new InvalidOperationException("The side panel's New tab button was not found; no change made.");
+        EnsureForeground();
+        ((ExpandCollapsePattern)expand).Expand();
+        ClaudeMenuItem row = null;
         List<ClaudeMenuItem> items = null;
         Stopwatch timer = Stopwatch.StartNew();
         do
         {
             EnsureForeground();
             items = ClaudeMenuItems(root);
-            foreach (ClaudeMenuItem item in items)
-                if (IsTasksLabel(item.Name)) { box = item.Element; break; }
+            foreach (ClaudeMenuItem item in items) if (matches(item.Name)) { row = item; break; }
             // The menu's rows arrive together, so one that has rendered need not be waited on.
-            if (box != null || (items.Count > 0 && timer.ElapsedMilliseconds >= 300)) break;
+            if (row != null || (items.Count > 0 && timer.ElapsedMilliseconds >= 300)) break;
             Thread.Sleep(25);
         } while (timer.ElapsedMilliseconds < 1600);
-        // Claude lists Background tasks only while the session has tasks to show.
-        if (box == null && items.Count > 0)
-        {
-            trace.AppendLine("menu items=" + MenuNames(items));
-            CloseMenu(root, options);
-            Record("Tasks: nothing to show in this session" + GiveFocusBack(typing));
-            DeferNotice("이 세션에는 백그라운드 작업이 없습니다.");
-            return;
-        }
-        if (box == null || !box.TryGetCurrentPattern(TogglePattern.Pattern, out pattern))
-        {
-            trace.AppendLine("menu items=" + MenuNames(items));
-            CloseMenu(root, options);
-            throw new InvalidOperationException("Background tasks was not found in the View options menu; no change made.");
-        }
-        TogglePattern toggle = (TogglePattern)pattern;
-        bool show = toggle.Current.ToggleState != ToggleState.On;
-        toggle.Toggle();
-        // Choosing usually closes the menu, so the pane itself confirms the change.
-        timer.Restart();
-        bool shown = !show;
+        if (row != null && InvokeMenuItem(row)) { trace.AppendLine(label + " opened from the New tab menu."); return true; }
+        trace.AppendLine("New tab menu items=" + MenuNames(items));
+        CloseMenu(root, newTab);
+        if (items.Count == 0) throw new InvalidOperationException("The side panel's New tab menu did not open; no change made.");
+        return false;
+    }
+    private static bool IsNewTabButton(string name)
+    {
+        return Regex.IsMatch(name, @"^\s*(새\s*탭|new\s*tab)\s*$", RegexOptions.IgnoreCase);
+    }
+    private static AutomationElement FindButton(AutomationElement root, Func<string, bool> matches, string label, int waitMs)
+    {
+        Stopwatch treeTimer = Stopwatch.StartNew();
+        int lookups = 0;
         do
         {
-            Thread.Sleep(25);
-            EnsureForeground();
-            shown = TasksPaneShown(root);
-        } while (shown != show && timer.ElapsedMilliseconds < 1500);
-        CloseMenu(root, options);
-        trace.AppendLine("Background tasks: " + (show ? "show" : "hide") + ", pane shown=" + shown);
-        if (shown != show) throw new InvalidOperationException("The background tasks pane did not " + (show ? "open." : "close."));
-        Record("Tasks: pane " + (show ? "shown" : "hidden") + " (pane verified)" + GiveFocusBack(typing));
-    }
-    // The menu label carries the running task count, e.g. "백그라운드 작업 4".
-    private static bool IsTasksLabel(string name)
-    {
-        return Regex.IsMatch(name, @"^\s*(백그라운드\s*작업|background\s*tasks?)(\s*\d+)?\s*$", RegexOptions.IgnoreCase);
-    }
-    private static bool TasksPaneShown(AutomationElement root) { return TasksPaneClose(root) != null; }
-    // The session details rail also has a "백그라운드 작업" section, so only a group with its
-    // own Close button is the tasks pane; the pane's Close button is returned.
-    private static AutomationElement TasksPaneClose(AutomationElement root)
-    {
-        foreach (AutomationElement group in Elements(root, ControlType.Group))
-            if (IsTasksLabel(Name(group)))
-                foreach (AutomationElement button in Elements(group, ControlType.Button))
-                    if (Regex.IsMatch(Name(button), @"^\s*(닫기|close)\s*$", RegexOptions.IgnoreCase)) return button;
+            if (lookups++ > 0) Thread.Sleep(50);
+            foreach (AutomationElement button in Elements(root, ControlType.Button))
+                if (matches(Name(button))) return button;
+        } while (treeTimer.ElapsedMilliseconds < waitMs);
+        if (waitMs > 0) trace.AppendLine(label + " button missing after " + lookups + " lookups, " + treeTimer.ElapsedMilliseconds + " ms.");
         return null;
-    }
-    private static void CloseTasksPane(AutomationElement root, AutomationElement close, AutomationElement typing)
-    {
-        object invoke;
-        if (!close.TryGetCurrentPattern(InvokePattern.Pattern, out invoke))
-            throw new InvalidOperationException("The background tasks pane's Close button cannot be pressed; no change made.");
-        EnsureForeground();
-        focusTouched = true;
-        ((InvokePattern)invoke).Invoke();
-        Stopwatch timer = Stopwatch.StartNew();
-        bool shown = true;
-        do
-        {
-            Thread.Sleep(25);
-            EnsureForeground();
-            shown = TasksPaneShown(root);
-        } while (shown && timer.ElapsedMilliseconds < 1500);
-        if (shown) throw new InvalidOperationException("The background tasks pane did not close.");
-        Record("Tasks: pane hidden (pane verified)" + GiveFocusBack(typing));
     }
     // Mouse-free: the header's Activity panel toggle (named Session panel before 2026-11)
     // shows or hides the session details rail.
@@ -1004,52 +1112,71 @@ internal static class ReasoningSwitch
     {
         ToggleHeaderButton(root, IsSessionPanelToggle, "Activity panel", "Panel: activity panel");
     }
-    // Mouse-free: the header's Changes toggle shows or hides the diff view. Claude's own
+    // Mouse-free: the side panel's Changes tab shows or hides the diff view. Claude's own
     // Ctrl+Shift+D can be taken by another hotkey, and a Ctrl+Shift+D sent from StrokesPlus
-    // fires that hotkey too, so the button is pressed instead of the key.
+    // fires that hotkey too, so the panel is driven instead of the key.
     private static void ToggleChangesView(AutomationElement root)
     {
-        ToggleHeaderButton(root, IsChangesToggle, "Changes", "Changes: changes view");
+        if (!ToggleSideTab(root, IsChangesToggle, "Changes", "Changes: changes view"))
+            throw new InvalidOperationException("The side panel does not offer Changes; no change made.");
     }
+    // The button is a toggle while its pane is docked, and since 2026-11-27 a pop-out
+    // (expand/collapse) button when the side panel leaves no room; both are handled.
     private static void ToggleHeaderButton(AutomationElement root, Func<string, bool> matches, string label, string record)
     {
         AutomationElement typing = FocusedTextEntry();
         // Chromium builds its accessibility tree on request, so the first lookup can return
-        // only the window frame; look again for a short while.
-        AutomationElement found = null;
-        Stopwatch treeTimer = Stopwatch.StartNew();
-        int lookups = 0;
-        do
-        {
-            EnsureForeground();
-            lookups++;
-            foreach (AutomationElement button in Elements(root, ControlType.Button))
-                if (matches(Name(button))) { found = button; break; }
-            if (found != null) break;
-            Thread.Sleep(50);
-        } while (treeTimer.ElapsedMilliseconds < 1500);
-        if (lookups > 1) trace.AppendLine(label + " button lookups=" + lookups + ", waited=" + treeTimer.ElapsedMilliseconds + " ms.");
-        object pattern;
-        if (found == null || !found.TryGetCurrentPattern(TogglePattern.Pattern, out pattern))
+        // only the window frame; FindButton looks again for a short while.
+        AutomationElement found = FindButton(root, matches, label, 1500);
+        bool? open = found == null ? null : HeaderPaneOpen(found);
+        if (open == null)
             throw new InvalidOperationException("The " + label + " button was not found; open a session in the Code tab.");
-        TogglePattern toggle = (TogglePattern)pattern;
-        ToggleState target = toggle.Current.ToggleState == ToggleState.On ? ToggleState.Off : ToggleState.On;
+        bool target = open != true;
         EnsureForeground();
         focusTouched = true;
-        toggle.Toggle();
+        object pattern;
+        if (found.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) ((TogglePattern)pattern).Toggle();
+        else if (target) ((ExpandCollapsePattern)found.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();
+        else ((ExpandCollapsePattern)found.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Collapse();
+        // The button can be drawn again as the pane moves, so it is looked up afresh.
         Stopwatch timer = Stopwatch.StartNew();
-        while (toggle.Current.ToggleState != target && timer.ElapsedMilliseconds < 1500) Thread.Sleep(25);
-        string action = target == ToggleState.On ? "open" : "close";
-        if (toggle.Current.ToggleState != target) throw new InvalidOperationException("The " + label + " button did not " + action + " its pane.");
-        Record(record + " " + action + (target == ToggleState.On ? "ed" : "d") + " (button verified)" + GiveFocusBack(typing));
+        bool? now = open;
+        do
+        {
+            Thread.Sleep(25);
+            AutomationElement button = FindButton(root, matches, label, 0);
+            now = button == null ? null : HeaderPaneOpen(button);
+        } while (now != target && timer.ElapsedMilliseconds < 1500);
+        string action = target ? "open" : "close";
+        if (now != target) throw new InvalidOperationException("The " + label + " button did not " + action + " its pane.");
+        Record(record + " " + action + (target ? "ed" : "d") + " (button verified)" + GiveFocusBack(typing));
+    }
+    // Null when the button offers neither a toggle nor an expand/collapse state.
+    private static bool? HeaderPaneOpen(AutomationElement button)
+    {
+        object pattern;
+        try
+        {
+            if (button.TryGetCurrentPattern(TogglePattern.Pattern, out pattern))
+                return ((TogglePattern)pattern).Current.ToggleState == ToggleState.On;
+            if (button.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out pattern))
+            {
+                ExpandCollapseState state = ((ExpandCollapsePattern)pattern).Current.ExpandCollapseState;
+                if (state == ExpandCollapseState.LeafNode) return null;
+                return state != ExpandCollapseState.Collapsed;
+            }
+        }
+        catch (ElementNotAvailableException) { }
+        return null;
     }
     private static bool IsSessionPanelToggle(string name)
     {
         return Regex.IsMatch(name, @"^\s*(활동\s*패널|세션\s*패널|activity\s*panel|session\s*panel)\s*$", RegexOptions.IgnoreCase);
     }
+    // The side panel's entry carries the diff counts, e.g. "변경 사항 추가됨: 2, 삭제됨: 0".
     private static bool IsChangesToggle(string name)
     {
-        return Regex.IsMatch(name, @"^\s*(변경\s*사항|changes)\s*$", RegexOptions.IgnoreCase);
+        return Regex.IsMatch(name, @"^\s*(변경\s*사항|changes)(\s+[^\d]*\d.*)?\s*$", RegexOptions.IgnoreCase);
     }
     // Mouse-free: presses Send now on the first message waiting while Claude works, which stops
     // the current reply and sends that message next. The Code tab gives this button no shortcut;
@@ -1346,7 +1473,7 @@ internal static class ReasoningSwitch
             if (IsMarkdownViewToggle(Name(button))) { if (toggle == null) toggle = button; found++; }
         trace.AppendLine("Markdown view buttons=" + found);
         AutomationElement typing = FocusedTextEntry();
-        if (toggle == null) { ToggleFilePane(root, typing); return; }
+        if (toggle == null) { ToggleFilePane(root); return; }
         string before = Name(toggle);
         bool toSource = Regex.IsMatch(before, @"소스|source", RegexOptions.IgnoreCase);
         object invoke;
@@ -1369,26 +1496,12 @@ internal static class ReasoningSwitch
             throw new InvalidOperationException("The Markdown view did not confirm the switch.");
         Record("Markdown: " + (toSource ? "source" : "preview") + " (button verified)" + GiveFocusBack(typing));
     }
-    // With no Markdown view on screen, the header's Files toggle opens the file pane,
-    // or closes it when it is already open without one.
-    private static void ToggleFilePane(AutomationElement root, AutomationElement typing)
+    // With no Markdown view on screen, the side panel's Files tab is brought to the front,
+    // or the panel is closed when that tab is already in front without one.
+    private static void ToggleFilePane(AutomationElement root)
     {
-        AutomationElement files = null;
-        foreach (AutomationElement button in Elements(root, ControlType.Button))
-            if (Regex.IsMatch(Name(button), @"^\s*(파일|files?)\s*$", RegexOptions.IgnoreCase)) { files = button; break; }
-        object pattern;
-        if (files == null || !files.TryGetCurrentPattern(TogglePattern.Pattern, out pattern))
-            throw new InvalidOperationException("No Markdown view and no Files button is visible; open the Code tab.");
-        TogglePattern toggle = (TogglePattern)pattern;
-        ToggleState target = toggle.Current.ToggleState == ToggleState.On ? ToggleState.Off : ToggleState.On;
-        EnsureForeground();
-        focusTouched = true;
-        toggle.Toggle();
-        Stopwatch timer = Stopwatch.StartNew();
-        while (toggle.Current.ToggleState != target && timer.ElapsedMilliseconds < 1500) Thread.Sleep(25);
-        string action = target == ToggleState.On ? "open" : "close";
-        if (toggle.Current.ToggleState != target) throw new InvalidOperationException("The file pane did not " + action + ".");
-        Record("Markdown: file pane " + action + (target == ToggleState.On ? "ed" : "d") + " (button verified)" + GiveFocusBack(typing));
+        if (!ToggleSideTab(root, IsFilesLabel, "Files", "Markdown: file pane"))
+            throw new InvalidOperationException("No Markdown view is visible and the side panel does not offer Files; no change made.");
     }
     // Mouse-free: expands the trigger's menu through UI Automation, then opens the row's
     // submenu with one Right arrow key, the only step submenus ignore UI Automation for.
@@ -2001,9 +2114,16 @@ internal static class ReasoningSwitch
             IsSessionPanelToggle("세션 세부정보") || IsSessionPanelToggle("세션 패널 크기 조정") ||
             IsSessionPanelToggle("활동 패널 크기 조정"))
             throw new InvalidOperationException("Session panel button selftest failed.");
-        if (!IsChangesToggle("변경 사항") || !IsChangesToggle("Changes") ||
-            IsChangesToggle("변경 사항 없음") || IsChangesToggle("Discard changes"))
+        if (!IsChangesToggle("변경 사항") || !IsChangesToggle("Changes") || !IsChangesToggle("변경 사항 추가됨: 2, 삭제됨: 0") ||
+            !IsChangesToggle("Changes 3 added, 1 removed") || IsChangesToggle("변경 사항 없음") || IsChangesToggle("Discard changes"))
             throw new InvalidOperationException("Changes button selftest failed.");
+        // Side panel names seen 2026-11-27; the panel's resize handle and a tab's close button must not match.
+        if (!IsSidePanelToggle("사이드 패널") || !IsSidePanelToggle("Side panel") || IsSidePanelToggle("채팅 및 사이드 패널 크기 조정") ||
+            IsSidePanelToggle("사이드 패널 컨트롤") || !IsSideTabBar("사이드 패널 탭") || IsSideTabBar("사이드 패널") ||
+            !IsSideLauncher("사이드 패널에서 열기") || !IsNewTabButton("새 탭") || IsNewTabButton("새 탭에서 열기") ||
+            !IsFilesLabel("파일") || !IsFilesLabel("Files") || IsFilesLabel("파일 열기") ||
+            IsTasksLabel("탭 닫기 백그라운드 작업") || IsTasksLabel("백그라운드 작업 컨트롤"))
+            throw new InvalidOperationException("Side panel name selftest failed.");
         if (!IsQueuedCount("메시지 2 개 대기 중다음 메시지: 지금") || !IsQueuedCount("메시지 1개 대기 중") ||
             !IsQueuedCount("3 messages queuedNext: hi") || !IsQueuedCount("1 message queued") ||
             IsQueuedCount("대기 중인 메시지 접기") || IsQueuedCount("Collapse queued messages") || IsQueuedCount("메시지 2"))
