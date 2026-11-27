@@ -33,7 +33,7 @@ internal static class ReasoningSwitch
     private static System.Windows.Rect chatInputWindowBounds = System.Windows.Rect.Empty;
     private static StringBuilder trace = new StringBuilder();
     private static Stopwatch operationTimer = Stopwatch.StartNew();
-    private const string BuildName = "70-token-in-app-store";
+    private const string BuildName = "71-activity-panel";
     // Anchored: sidebar session titles may also contain the model name.
     private const string ClaudeModels = @"(?:Opus\s+5\.5|Fable\s+5\.2)";
     private const string ClaudeModelPattern = @"^\s*(?:(?:Model|모델)\s*:?\s*(?:Claude\s+)?" + ClaudeModels + @"\b|(?:Claude\s+)?" + ClaudeModels + @"\s*$)";
@@ -129,7 +129,7 @@ internal static class ReasoningSwitch
                     args[0] == "status" ? "보관된 세션을 열지 못했습니다." :
                     args[0] == "markdown" ? "Markdown 미리보기/소스를 전환하지 못했습니다." :
                     args[0] == "tasks" ? "백그라운드 작업 창을 전환하지 못했습니다." :
-                    args[0] == "panel" ? "세션 패널을 전환하지 못했습니다." :
+                    args[0] == "panel" ? "활동 패널을 전환하지 못했습니다." :
                     args[0] == "changes" ? "변경 사항 창을 전환하지 못했습니다." :
                     args[0] == "send" ? "대기 메시지를 지금 보내지 못했습니다." :
                     args[0] == "model-up" || args[0] == "model-down" ? "모델을 바꾸지 못했습니다." : "추론 전환을 확인하지 못했습니다.") +
@@ -998,10 +998,11 @@ internal static class ReasoningSwitch
         if (shown) throw new InvalidOperationException("The background tasks pane did not close.");
         Record("Tasks: pane hidden (pane verified)" + GiveFocusBack(typing));
     }
-    // Mouse-free: the header's Session panel toggle shows or hides the session details rail.
+    // Mouse-free: the header's Activity panel toggle (named Session panel before 2026-11)
+    // shows or hides the session details rail.
     private static void ToggleSessionPanel(AutomationElement root)
     {
-        ToggleHeaderButton(root, IsSessionPanelToggle, "Session panel", "Panel: session panel");
+        ToggleHeaderButton(root, IsSessionPanelToggle, "Activity panel", "Panel: activity panel");
     }
     // Mouse-free: the header's Changes toggle shows or hides the diff view. Claude's own
     // Ctrl+Shift+D can be taken by another hotkey, and a Ctrl+Shift+D sent from StrokesPlus
@@ -1044,7 +1045,7 @@ internal static class ReasoningSwitch
     }
     private static bool IsSessionPanelToggle(string name)
     {
-        return Regex.IsMatch(name, @"^\s*(세션\s*패널|session\s*panel)\s*$", RegexOptions.IgnoreCase);
+        return Regex.IsMatch(name, @"^\s*(활동\s*패널|세션\s*패널|activity\s*panel|session\s*panel)\s*$", RegexOptions.IgnoreCase);
     }
     private static bool IsChangesToggle(string name)
     {
@@ -1995,8 +1996,10 @@ internal static class ReasoningSwitch
         if (!IsTasksLabel("백그라운드 작업") || !IsTasksLabel("백그라운드 작업 4") || !IsTasksLabel("Background tasks 12") ||
             IsTasksLabel("백그라운드 작업 지우기") || IsTasksLabel("채팅 및 백그라운드 작업 크기 조정"))
             throw new InvalidOperationException("Background tasks label selftest failed.");
-        if (!IsSessionPanelToggle("세션 패널") || !IsSessionPanelToggle("Session panel") ||
-            IsSessionPanelToggle("세션 세부정보") || IsSessionPanelToggle("세션 패널 크기 조정"))
+        if (!IsSessionPanelToggle("활동 패널") || !IsSessionPanelToggle("Activity panel") ||
+            !IsSessionPanelToggle("세션 패널") || !IsSessionPanelToggle("Session panel") ||
+            IsSessionPanelToggle("세션 세부정보") || IsSessionPanelToggle("세션 패널 크기 조정") ||
+            IsSessionPanelToggle("활동 패널 크기 조정"))
             throw new InvalidOperationException("Session panel button selftest failed.");
         if (!IsChangesToggle("변경 사항") || !IsChangesToggle("Changes") ||
             IsChangesToggle("변경 사항 없음") || IsChangesToggle("Discard changes"))
